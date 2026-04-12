@@ -80,48 +80,61 @@ st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
 st.sidebar.caption("数据来源：Space-Track.org")
 
-# ── 全局 LCOLA 后台任务完成通知（每次页面刷新时检查）────────────────────────────
-# When the user is on another page the LCOLA fragment doesn't run, so we detect
-# completion here (main-thread context → st.session_state writes are valid).
-_lcola_ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
-if _lcola_ps is not None and _lcola_ps.done and st.session_state.get("_lcola_running"):
-    st.session_state["_lcola_running"] = False
-    if _lcola_ps.error:
-        st.session_state["_lcola_error"] = _lcola_ps.error
-    elif _lcola_ps.report is not None:
-        _rpt = _lcola_ps.report
-        st.session_state["lcola_report"]       = _rpt
-        st.session_state["_lcola_n_blackouts"] = len(_rpt.blackout_windows)
-        st.session_state["_lcola_n_events"]    = len(_rpt.top_events)
-        st.session_state["_lcola_just_done"]   = True
+# ── 全局后台任务轮询（每 10 秒自动刷新，无需用户切换页面）────────────────────────
+@st.fragment(run_every=10)
+def _bg_poll_fragment():
+    """Poll for LCOLA completion and update sidebar progress every 10 s.
 
-if st.session_state.pop("_lcola_just_done", False):
-    n_bo = st.session_state.get("_lcola_n_blackouts", 0)
-    n_ev = st.session_state.get("_lcola_n_events", 0)
-    st.toast(
-        f"🛸 LCOLA 飞越筛选完成！  {n_bo} 个禁发窗口 · {n_ev} 条合取事件",
-        icon="✅",
-    )
-if st.session_state.get("_lcola_running"):
-    _ps_sb: _LcolaProgress | None = st.session_state.get("_lcola_ps")
-    if _ps_sb and _ps_sb.total > 0:
-        _sb_step    = _ps_sb.step
-        _sb_total   = _ps_sb.total
-        _sb_elapsed = _time_mod.time() - _ps_sb.start_time
-        _sb_eta     = ""
-        if _sb_step > 0:
-            _rate    = _sb_elapsed / _sb_step
-            _remain  = _rate * (_sb_total - _sb_step)
-            _sb_eta  = f" · 剩余≈{_remain:.0f}s"
-        _sb_text = (
-            f"⏳ LCOLA 计算中 {_sb_step}/{_sb_total}{_sb_eta}"
-        )
+    Uses @st.fragment so only this fragment re-renders, not the full page.
+    Background thread never writes st.session_state; we read the mutable
+    _LcolaProgress object here instead.
+    """
+    ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
+    if ps is None:
+        return
+
+    # ── completion detection ────────────────────────────────────────────────
+    if ps.done and st.session_state.get("_lcola_running"):
+        st.session_state["_lcola_running"] = False
+        if ps.error:
+            st.session_state["_lcola_error"] = ps.error
+            st.toast(f"❌ LCOLA 计算失败：{ps.error}", icon="❌")
+        elif ps.report is not None:
+            _rpt = ps.report
+            st.session_state["lcola_report"]       = _rpt
+            st.session_state["_lcola_n_blackouts"] = len(_rpt.blackout_windows)
+            st.session_state["_lcola_n_events"]    = len(_rpt.top_events)
+            n_bo = len(_rpt.blackout_windows)
+            n_ev = len(_rpt.top_events)
+            st.toast(
+                f"🛸 LCOLA 飞越筛选完成！  {n_bo} 个禁发窗口 · {n_ev} 条合取事件",
+                icon="✅",
+            )
+        st.rerun()
+        return
+
+    # ── in-progress sidebar status ─────────────────────────────────────────
+    if not st.session_state.get("_lcola_running"):
+        return
+
+    if ps.total > 0:
+        step    = ps.step
+        total   = ps.total
+        elapsed = _time_mod.time() - ps.start_time
+        eta_str = ""
+        if step > 0:
+            eta_str = f" · 剩余≈{elapsed / step * (total - step):.0f}s"
+        sb_text = f"⏳ LCOLA 计算中 {step}/{total}{eta_str}"
     else:
-        _sb_text = "⏳ LCOLA 正在后台计算…"
+        sb_text = "⏳ LCOLA 正在后台计算…"
+
     st.sidebar.markdown(
-        f'<span style="color:#ffcc00;font-size:12px">{_sb_text}</span>',
+        f'<span style="color:#ffcc00;font-size:12px">{sb_text}</span>',
         unsafe_allow_html=True,
     )
+
+
+_bg_poll_fragment()
 
 # ------------------------------------------------------------------
 # 页面：系统概览

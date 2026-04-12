@@ -424,3 +424,300 @@ def predict_launch_collision_risk(
         "recommendation":  recommendation,
         "caveats":         caveats,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 3 · get_debris_reentry_forecast
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_debris_reentry_forecast(
+    days_ahead: float = 30.0,
+    alt_max_km: float = 300.0,
+    object_type: str = "ALL",
+    limit: int = 50,
+) -> dict:
+    """
+    Forecast space objects predicted to re-enter Earth's atmosphere.
+
+    Queries catalog_objects for tracked objects with a decay_date set within
+    the next `days_ahead` days, or (when decay_date is NULL) objects whose
+    perigee altitude is below `alt_max_km` — indicating imminent re-entry.
+
+    Returns a structured dict with:
+    - window: query parameters
+    - count: total matches
+    - objects: list with NORAD ID, name, type, country, decay_date, perigee_km
+    - summary: human-readable summary
+    """
+    from database.db import session_scope
+    from sqlalchemy import text
+
+    t_now = datetime.now(timezone.utc)
+    t_end = t_now + timedelta(days=days_ahead)
+
+    ot = object_type.upper()
+    type_filter = "" if ot == "ALL" else f"AND UPPER(object_type) = '{ot}'"
+
+    sql = text(f"""
+        SELECT
+            norad_cat_id,
+            name,
+            object_type,
+            country_code,
+            launch_date,
+            decay_date,
+            perigee_km,
+            apogee_km,
+            inclination,
+            COUNT(*) OVER () AS total_count
+        FROM catalog_objects
+        WHERE (
+            (decay_date IS NOT NULL AND decay_date >= :t_now AND decay_date <= :t_end)
+            OR
+            (decay_date IS NULL AND perigee_km IS NOT NULL AND perigee_km <= :alt_max)
+        )
+        {type_filter}
+        ORDER BY
+            CASE WHEN decay_date IS NOT NULL THEN 0 ELSE 1 END,
+            decay_date ASC NULLS LAST,
+            perigee_km ASC
+        LIMIT :lim
+    """)
+
+    try:
+        with session_scope() as sess:
+            rows = sess.execute(sql, {
+                "t_now": t_now, "t_end": t_end,
+                "alt_max": alt_max_km, "lim": min(limit, 200),
+            }).fetchall()
+    except Exception as exc:
+        return {"error": str(exc), "objects": [], "count": 0}
+
+    total = int(rows[0][9]) if rows else 0
+    objects = []
+    for r in rows:
+        decay_str = r[5].isoformat() if r[5] is not None else None
+        launch_str = r[4].isoformat() if r[4] is not None else None
+        days_to_decay = None
+        if r[5] is not None:
+            delta = (r[5].replace(tzinfo=timezone.utc) if r[5].tzinfo is None else r[5]) - t_now
+            days_to_decay = round(delta.total_seconds() / 86400, 1)
+        objects.append({
+            "norad_cat_id":  r[0],
+            "name":          r[1] or f"NORAD-{r[0]}",
+            "object_type":   r[2] or "UNKNOWN",
+            "country":       r[3] or "?",
+            "launch_date":   launch_str,
+            "decay_date":    decay_str,
+            "days_to_reentry": days_to_decay,
+            "perigee_km":    round(float(r[6]), 1) if r[6] is not None else None,
+            "apogee_km":     round(float(r[7]), 1) if r[7] is not None else None,
+            "inclination_deg": round(float(r[8]), 2) if r[8] is not None else None,
+        })
+
+    n_scheduled = sum(1 for o in objects if o["decay_date"] is not None)
+    n_imminent  = len(objects) - n_scheduled
+    summary = (
+        f"未来 {days_ahead:.0f} 天内预计再入 {total} 个目标："
+        f"{n_scheduled} 个有确认再入日期，"
+        f"{n_imminent} 个近地点 ≤ {alt_max_km:.0f} km 的待再入目标。"
+    )
+    return {
+        "window": {
+            "days_ahead": days_ahead,
+            "alt_max_km": alt_max_km,
+            "t_now_utc": t_now.isoformat(),
+            "t_end_utc": t_end.isoformat(),
+        },
+        "count":   total,
+        "showing": len(objects),
+        "objects": objects,
+        "summary": summary,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 4 · get_object_tle
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_object_tle(
+    norad_cat_id: int,
+) -> dict:
+    """
+    Retrieve the latest Two-Line Element (TLE) set for a tracked space object.
+
+    Returns the TLE lines, orbital epoch, and key mean elements (inclination,
+    eccentricity, mean motion, RAAN, argument of pericenter, B* drag) needed
+    for external SGP4 propagation.
+
+    Also returns the catalog name and object type from catalog_objects.
+    """
+    from database.db import session_scope
+    from sqlalchemy import text
+
+    sql = text("""
+        SELECT
+            ge.tle_line1,
+            ge.tle_line2,
+            ge.epoch,
+            ge.inclination,
+            ge.eccentricity,
+            ge.mean_motion,
+            ge.ra_of_asc_node,
+            ge.arg_of_pericenter,
+            ge.mean_anomaly,
+            ge.bstar,
+            co.name,
+            co.object_type,
+            co.country_code,
+            co.perigee_km,
+            co.apogee_km
+        FROM gp_elements ge
+        JOIN catalog_objects co ON co.norad_cat_id = ge.norad_cat_id
+        WHERE ge.norad_cat_id = :nid
+        ORDER BY ge.epoch DESC
+        LIMIT 1
+    """)
+
+    try:
+        with session_scope() as sess:
+            row = sess.execute(sql, {"nid": norad_cat_id}).fetchone()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    if row is None:
+        return {
+            "error": f"未找到 NORAD {norad_cat_id} 的轨道根数数据",
+            "norad_cat_id": norad_cat_id,
+        }
+
+    epoch_str = row[2].isoformat() if row[2] is not None else None
+    return {
+        "norad_cat_id":        norad_cat_id,
+        "name":                row[10] or f"NORAD-{norad_cat_id}",
+        "object_type":         row[11] or "UNKNOWN",
+        "country":             row[12] or "?",
+        "tle_line1":           row[0],
+        "tle_line2":           row[1],
+        "epoch_utc":           epoch_str,
+        "elements": {
+            "inclination_deg":     round(float(row[3]), 4) if row[3] is not None else None,
+            "eccentricity":        round(float(row[4]), 7) if row[4] is not None else None,
+            "mean_motion_rev_day": round(float(row[5]), 8) if row[5] is not None else None,
+            "raan_deg":            round(float(row[6]), 4) if row[6] is not None else None,
+            "arg_pericenter_deg":  round(float(row[7]), 4) if row[7] is not None else None,
+            "mean_anomaly_deg":    round(float(row[8]), 4) if row[8] is not None else None,
+            "bstar":               float(row[9]) if row[9] is not None else None,
+        },
+        "orbit": {
+            "perigee_km": round(float(row[13]), 1) if row[13] is not None else None,
+            "apogee_km":  round(float(row[14]), 1) if row[14] is not None else None,
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 5 · query_debris_by_rcs
+# ─────────────────────────────────────────────────────────────────────────────
+
+def query_debris_by_rcs(
+    rcs_sizes: Optional[list] = None,
+    alt_min_km: float = 0.0,
+    alt_max_km: float = 2000.0,
+    object_type: str = "ALL",
+    limit: int = 50,
+) -> dict:
+    """
+    Filter tracked space objects by radar cross-section (RCS) size category.
+
+    RCS size categories stored in catalog_objects:
+    - SMALL   (< 0.1 m²) — hardest to track, highest miss-distance uncertainty
+    - MEDIUM  (0.1–1 m²)
+    - LARGE   (> 1 m²)   — most trackable, most massive / most debris on breakup
+
+    Useful for threat-discrimination: e.g. filter to LARGE objects only when
+    assessing risk to crewed vehicles, or SMALL to understand catalog completeness.
+
+    Returns catalog info including perigee, apogee, inclination, country, RCS.
+    """
+    from database.db import session_scope
+    from sqlalchemy import text
+
+    if rcs_sizes is None:
+        rcs_sizes = ["SMALL", "MEDIUM", "LARGE"]
+
+    # Sanitise RCS list
+    valid = {"SMALL", "MEDIUM", "LARGE"}
+    rcs_upper = [s.upper() for s in rcs_sizes if s.upper() in valid]
+    if not rcs_upper:
+        rcs_upper = ["SMALL", "MEDIUM", "LARGE"]
+
+    rcs_in = ", ".join(f"'{r}'" for r in rcs_upper)
+
+    ot = object_type.upper()
+    type_filter = "" if ot == "ALL" else f"AND UPPER(object_type) = '{ot}'"
+
+    sql = text(f"""
+        SELECT
+            norad_cat_id,
+            name,
+            object_type,
+            country_code,
+            rcs_size,
+            perigee_km,
+            apogee_km,
+            inclination,
+            period_min,
+            COUNT(*) OVER () AS total_count
+        FROM catalog_objects
+        WHERE rcs_size IN ({rcs_in})
+          AND perigee_km >= :alt_min
+          AND apogee_km  <= :alt_max + 500
+          {type_filter}
+        ORDER BY perigee_km
+        LIMIT :lim
+    """)
+
+    try:
+        with session_scope() as sess:
+            rows = sess.execute(sql, {
+                "alt_min": alt_min_km, "alt_max": alt_max_km,
+                "lim": min(limit, 200),
+            }).fetchall()
+    except Exception as exc:
+        return {"error": str(exc), "objects": [], "count": 0}
+
+    total = int(rows[0][9]) if rows else 0
+    rcs_counts: dict = {}
+    objects = []
+    for r in rows:
+        rcs = r[4] or "UNKNOWN"
+        rcs_counts[rcs] = rcs_counts.get(rcs, 0) + 1
+        objects.append({
+            "norad_cat_id":    r[0],
+            "name":            r[1] or f"NORAD-{r[0]}",
+            "object_type":     r[2] or "UNKNOWN",
+            "country":         r[3] or "?",
+            "rcs_size":        rcs,
+            "perigee_km":      round(float(r[5]), 1) if r[5] is not None else None,
+            "apogee_km":       round(float(r[6]), 1) if r[6] is not None else None,
+            "inclination_deg": round(float(r[7]), 2) if r[7] is not None else None,
+            "period_min":      round(float(r[8]), 2) if r[8] is not None else None,
+        })
+
+    rcs_str = ", ".join(f"{v} 个{k}" for k, v in rcs_counts.items())
+    summary = (
+        f"高度 {alt_min_km:.0f}–{alt_max_km:.0f} km 范围内 RCS={'/'.join(rcs_upper)} "
+        f"的目标共 {total} 个（{rcs_str}）。"
+    )
+    return {
+        "filter": {
+            "rcs_sizes": rcs_upper,
+            "alt_range_km": [alt_min_km, alt_max_km],
+            "object_type": object_type,
+        },
+        "count":    total,
+        "showing":  len(objects),
+        "objects":  objects,
+        "summary":  summary,
+    }

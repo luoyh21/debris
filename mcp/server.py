@@ -29,6 +29,9 @@ from pydantic import Field
 from ingestion.tools import (
     query_debris_in_region as _query_debris_in_region_fn,
     predict_launch_collision_risk as _predict_launch_collision_risk_fn,
+    get_debris_reentry_forecast as _get_debris_reentry_forecast_fn,
+    get_object_tle as _get_object_tle_fn,
+    query_debris_by_rcs as _query_debris_by_rcs_fn,
 )
 
 log = logging.getLogger(__name__)
@@ -193,6 +196,119 @@ def predict_launch_collision_risk(
         launch_utc=launch_utc,
         t_max_s=t_max_s,
         include_demo_threats=include_demo_threats,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 3 · get_debris_reentry_forecast
+# ─────────────────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def get_debris_reentry_forecast(
+    days_ahead: Annotated[float, Field(
+        description="Forecast window in days (1–365). "
+                    "Objects with confirmed decay_date within this window "
+                    "or perigee below alt_max_km are returned."
+    )] = 30.0,
+    alt_max_km: Annotated[float, Field(
+        description="For objects without a confirmed decay date, include those "
+                    "whose perigee is at or below this altitude (km). "
+                    "300 km = typical re-entry zone; use 500 for broader sweep."
+    )] = 300.0,
+    object_type: Annotated[str, Field(
+        description="Object category filter: 'DEBRIS', 'PAYLOAD', 'ROCKET BODY', or 'ALL'."
+    )] = "ALL",
+    limit: Annotated[int, Field(
+        description="Maximum number of objects to return (1–200). Defaults to 50."
+    )] = 50,
+) -> dict:
+    """
+    Forecast space objects predicted to re-enter Earth's atmosphere.
+
+    Queries catalog_objects for:
+    - Objects with a confirmed decay_date within the next `days_ahead` days
+    - Objects without a confirmed decay_date whose perigee ≤ alt_max_km
+      (indicating imminent natural re-entry)
+
+    Returns a structured dict with NORAD ID, name, type, country, decay_date,
+    days_to_reentry, perigee_km, apogee_km, inclination.
+    """
+    return _get_debris_reentry_forecast_fn(
+        days_ahead=days_ahead,
+        alt_max_km=alt_max_km,
+        object_type=object_type,
+        limit=limit,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 4 · get_object_tle
+# ─────────────────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def get_object_tle(
+    norad_cat_id: Annotated[int, Field(
+        description="NORAD catalog ID of the space object (e.g. 25544 for ISS, "
+                    "20580 for Hubble). Use query_debris_in_region to find IDs."
+    )],
+) -> dict:
+    """
+    Retrieve the latest Two-Line Element (TLE) set for a tracked space object.
+
+    Returns TLE line 1, TLE line 2, orbital epoch, and key mean elements
+    (inclination, eccentricity, mean motion, RAAN, arg. of pericenter,
+    mean anomaly, B* drag coefficient) needed for external SGP4 propagation.
+
+    Also returns catalog metadata: name, object type, country, perigee/apogee.
+    """
+    return _get_object_tle_fn(norad_cat_id=norad_cat_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 5 · query_debris_by_rcs
+# ─────────────────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def query_debris_by_rcs(
+    rcs_sizes: Annotated[Optional[list], Field(
+        description="List of RCS size categories to include. "
+                    "Valid values: 'SMALL' (< 0.1 m²), 'MEDIUM' (0.1–1 m²), "
+                    "'LARGE' (> 1 m²). Defaults to all three."
+    )] = None,
+    alt_min_km: Annotated[float, Field(
+        description="Minimum orbital altitude filter (km). Default 0."
+    )] = 0.0,
+    alt_max_km: Annotated[float, Field(
+        description="Maximum orbital altitude filter (km). Default 2000 (LEO)."
+    )] = 2000.0,
+    object_type: Annotated[str, Field(
+        description="Object type filter: 'DEBRIS', 'PAYLOAD', 'ROCKET BODY', or 'ALL'."
+    )] = "ALL",
+    limit: Annotated[int, Field(
+        description="Maximum number of objects to return (1–200). Defaults to 50."
+    )] = 50,
+) -> dict:
+    """
+    Filter tracked space objects by radar cross-section (RCS) size category.
+
+    RCS size categories:
+    - SMALL   (< 0.1 m²): hardest to track, largest uncertainty in miss distance
+    - MEDIUM  (0.1–1 m²): moderate trackability
+    - LARGE   (> 1 m²):   most trackable, most massive — highest debris generation
+                          potential on fragmentation
+
+    Use this to discriminate threats by physical size, e.g. filter to LARGE only
+    for crewed-mission collision avoidance, or SMALL to assess catalog completeness.
+
+    Returns: norad_cat_id, name, object_type, country, rcs_size, perigee_km,
+    apogee_km, inclination_deg, period_min.
+    """
+    return _query_debris_by_rcs_fn(
+        rcs_sizes=rcs_sizes,
+        alt_min_km=alt_min_km,
+        alt_max_km=alt_max_km,
+        object_type=object_type,
+        limit=limit,
     )
 
 
