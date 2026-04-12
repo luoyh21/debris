@@ -1,0 +1,32 @@
+# Orbit propagation
+sgp4>=2.23
+numpy>=1.26
+scipy>=1.12
+
+# Space-Track API
+requests>=2.31
+python-dateutil>=2.9
+
+# Database
+psycopg2-binary>=2.9
+sqlalchemy>=2.0
+geoalchemy2>=0.15
+
+# Geometry / spatial
+shapely>=2.0
+
+# Streamlit frontend
+streamlit>=1.35
+pandas>=2.2
+plotly>=5.22
+
+# LLM / OpenAI
+openai>=1.30
+
+# Async & utilities
+aiohttp>=3.9
+asyncio-throttle>=1.0
+python-dotenv>=1.0
+tqdm>=4.66
+loguru>=0.7
+pydantic>=2.7
