@@ -161,22 +161,31 @@ def _bg_poll_fragment():
 
 _bg_poll_fragment()
 
-# ── 侧边栏后台进度状态（常规主流程，每次整页刷新时更新）─────────────────────────
-if st.session_state.get("_lcola_running"):
-    _ps_sb: _LcolaProgress | None = st.session_state.get("_lcola_ps")
-    if _ps_sb and _ps_sb.total > 0:
-        _sb_step    = _ps_sb.step
-        _sb_total   = _ps_sb.total
-        _sb_elapsed = _time_mod.time() - _ps_sb.start_time
-        _sb_eta     = f" · 剩余≈{_sb_elapsed / _sb_step * (_sb_total - _sb_step):.0f}s" \
-                      if _sb_step > 0 else ""
-        _sb_text = f"⏳ LCOLA 计算中 {_sb_step}/{_sb_total}{_sb_eta}"
-    else:
-        _sb_text = "⏳ LCOLA 正在后台计算…"
-    st.sidebar.markdown(
-        f'<span style="color:#ffcc00;font-size:12px">{_sb_text}</span>',
-        unsafe_allow_html=True,
-    )
+# ── 侧边栏后台进度状态（每 30 秒自动刷新，无论用户在哪个页面）─────────────────────
+# Calling the fragment *inside* `with st.sidebar:` is the Streamlit-supported
+# way to let a fragment write to the sidebar without raising an exception.
+with st.sidebar:
+    @st.fragment(run_every=30)
+    def _sidebar_lcola_fragment():
+        if not st.session_state.get("_lcola_running"):
+            return
+        ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
+        if ps is None:
+            return
+        if ps.total > 0:
+            step    = ps.step
+            total   = ps.total
+            elapsed = _time_mod.time() - ps.start_time
+            eta_str = f" · 剩余≈{elapsed / step * (total - step):.0f}s" if step > 0 else ""
+            sb_text = f"⏳ LCOLA 计算中 {step}/{total}{eta_str}"
+        else:
+            sb_text = "⏳ LCOLA 正在后台计算…"
+        st.markdown(
+            f'<span style="color:#ffcc00;font-size:12px">{sb_text}</span>',
+            unsafe_allow_html=True,
+        )
+
+    _sidebar_lcola_fragment()
 
 # ------------------------------------------------------------------
 # 页面：系统概览
