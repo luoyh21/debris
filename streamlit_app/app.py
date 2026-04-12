@@ -128,10 +128,11 @@ def _bg_poll_fragment():
     else:
         sb_text = "⏳ LCOLA 正在后台计算…"
 
-    st.sidebar.markdown(
-        f'<span style="color:#ffcc00;font-size:12px">{sb_text}</span>',
-        unsafe_allow_html=True,
-    )
+    with st.sidebar:
+        st.markdown(
+            f'<span style="color:#ffcc00;font-size:12px">{sb_text}</span>',
+            unsafe_allow_html=True,
+        )
 
 
 _bg_poll_fragment()
@@ -647,7 +648,7 @@ elif page == "💬 AI 助手":
     )
 
     # ── MCP 工具文档面板 ──────────────────────────────────────────────
-    with st.expander("🔧 可用 MCP 工具", expanded=False):
+    with st.expander("🔧 可用 MCP 工具（5 个）", expanded=False):
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             st.markdown("""
@@ -667,8 +668,43 @@ elif page == "💬 AI 助手":
 | `hours` | 时间窗口长度（小时） | 6 |
 | `limit` | 最多返回目标数 | 50 |
 
-**示例提问：**
+**示例：**
 > 「搜索文昌（19.61°N, 110.95°E）上空500km内、高度200~2000km的所有碎片」
+
+---
+
+**🌍 get_debris_reentry_forecast**
+
+预报即将再入大气层的空间目标。查询 `catalog_objects` 中已有 `decay_date` 或近地点过低的目标。
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `days_ahead` | 预报窗口（天） | 30 |
+| `alt_max_km` | 无确认再入日期时近地点阈值（km） | 300 |
+| `object_type` | DEBRIS/PAYLOAD/ROCKET BODY/ALL | ALL |
+| `limit` | 最多返回目标数 | 50 |
+
+**返回：** NORAD ID、名称、类型、国家、确认再入日期、距今天数、轨道高度
+
+**示例：**
+> 「未来30天有哪些碎片预计再入大气层？」
+> 「近地点低于200km的待衰减碎片有哪些？」
+
+---
+
+**📡 get_object_tle**
+
+获取指定 NORAD 编号目标的最新 TLE 轨道根数，可用于外部 SGP4 传播计算。
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `norad_cat_id` | NORAD 目标编号（必填） | — |
+
+**返回：** TLE Line1/Line2、轨道历元、六根数（倾角/偏心率/平均运动/升交点赤经/近地点幅角/平近点角/B*阻力系数）
+
+**示例：**
+> 「给我 ISS（NORAD 25544）的 TLE 轨道根数」
+> 「获取 NORAD 12345 的最新轨道数据」
 """)
         with col_t2:
             st.markdown("""
@@ -688,8 +724,31 @@ elif page == "💬 AI 助手":
 
 **返回：** 各阶段风险等级（🔴🟠🟡🟢）、最高 Pc 合取事件列表、中文建议
 
-**示例提问：**
-> 「用长征五号B从文昌（19.61°N, 110.95°E）发射，方位角90°，预测明天06:00 UTC发射的各阶段碰撞风险」
+**示例：**
+> 「用长征五号B从文昌发射，方位角90°，预测明天06:00 UTC的碰撞风险」
+
+---
+
+**🔍 query_debris_by_rcs**
+
+按雷达截面积（RCS）大小类别筛选空间目标，用于威胁辨别与目录完整性分析。
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `rcs_sizes` | 类别列表：SMALL/MEDIUM/LARGE | 全部 |
+| `alt_min_km` | 最低轨道高度（km） | 0 |
+| `alt_max_km` | 最高轨道高度（km） | 2000 |
+| `object_type` | DEBRIS/PAYLOAD/ROCKET BODY/ALL | ALL |
+| `limit` | 最多返回目标数 | 50 |
+
+RCS 分级：
+- **SMALL** — < 0.1 m²，难以跟踪，位置不确定性大
+- **MEDIUM** — 0.1–1 m²
+- **LARGE** — > 1 m²，最易跟踪，碎裂后产碎片量最大
+
+**示例：**
+> 「LEO（200~2000km）中有多少 LARGE 级碎片？」
+> 「筛选 SMALL 级目标评估载人任务避撞窗口」
 """)
 
     # ── 示例问题快捷按钮 ─────────────────────────────────────────────
@@ -704,10 +763,17 @@ elif page == "💬 AI 助手":
         ("📊 轨道带分布",
          "统计低地球轨道（perigee_km 200~2000km）内各类型目标数量，"
          "按 object_type 分组并列出代表性目标名称各3个"),
+        ("🌍 再入预报",
+         "预测未来30天内有哪些空间目标即将再入大气层，列出确认再入日期和近地点高度"),
+        ("📡 获取 TLE",
+         "获取国际空间站（ISS，NORAD 25544）的最新TLE轨道根数，列出六根数"),
+        ("🔍 大型碎片统计",
+         "统计LEO（200~2000km）中LARGE级别的碎片数量，列出近地点最低的前10个"),
     ]
-    for col, (label, question) in zip(example_cols, _examples):
+    for i, (label, question) in enumerate(_examples):
+        col = example_cols[i % 3]
         with col:
-            if st.button(label, use_container_width=True):
+            if st.button(label, use_container_width=True, key=f"example_{i}"):
                 st.session_state["_prefill_question"] = question
                 st.rerun()
 
