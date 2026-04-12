@@ -53,19 +53,28 @@ def get_db_session_factory():
         return None
 
 
-def run_query(sql: str, params: dict = {}) -> pd.DataFrame:
+@st.cache_data(ttl=60, show_spinner=False)
+def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
+    """Read-only SQL query with a 60-second result cache.
+
+    Results are cached by (sql, params) key for 60 s so that repeated
+    page reruns (e.g. sidebar navigation, 30-s fragment fire) do not hit
+    the database unnecessarily.  Pass params=None (default) for static
+    queries; pass a plain dict for parametrised ones.
+    """
     factory = get_db_session_factory()
     if factory is None:
         return pd.DataFrame()
     sess = factory()
     try:
-        result = sess.execute(text(sql), params)
+        result = sess.execute(text(sql), params or {})
         return pd.DataFrame(result.fetchall(), columns=result.keys())
     except Exception as exc:
         st.error(f"数据库错误：{exc}")
         return pd.DataFrame()
     finally:
         sess.close()
+
 
 
 def _bar_chart_zero(data: "pd.Series | pd.DataFrame") -> None:
@@ -81,7 +90,7 @@ def _bar_chart_zero(data: "pd.Series | pd.DataFrame") -> None:
             x=alt.X(x_col, sort=None, title=x_col),
             y=alt.Y(y_col, scale=alt.Scale(zero=True), title=y_col),
         )
-        .properties(height=300)
+        .properties(height=300, width="container")
     )
     st.altair_chart(chart, use_container_width=True)
 
@@ -99,7 +108,7 @@ def _line_chart_zero(data: "pd.DataFrame") -> None:
             x=alt.X(x_col, title=x_col),
             y=alt.Y(y_col, scale=alt.Scale(zero=True), title=y_col),
         )
-        .properties(height=300)
+        .properties(height=300, width="container")
     )
     st.altair_chart(chart, use_container_width=True)
 
@@ -1157,55 +1166,54 @@ elif page == "⚠️ LCOLA 飞越筛选":
         threading.Thread(target=_bg_screen, daemon=True).start()
         st.rerun()
 
-    # ── 后台运行中：显示进度（非阻塞 fragment，每秒刷新）────────────────────
-    @st.fragment(run_every="1s")
-    def _lcola_progress_fragment():
-        if not st.session_state.get("_lcola_running"):
-            return
-        ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
-        if ps is None:
-            return
+    # ── 后台运行中：显示进度（非阻塞 fragment，仅在计算进行时注册 1s 刷新）────────
+    # Only register the run_every fragment when computation is actually active.
+    # When idle, there is no need for a 1-second timer — doing so would cause
+    # 60 partial reruns per minute even while nothing is happening.
+    if st.session_state.get("_lcola_running"):
+        @st.fragment(run_every="1s")
+        def _lcola_progress_fragment():
+            ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
+            if ps is None:
+                return
 
-        # ── task completed: drain ps → session_state, trigger toast ──────
-        if ps.done:
-            st.session_state["_lcola_running"] = False
-            if ps.error:
-                st.session_state["_lcola_error"] = ps.error
-            elif ps.report is not None:
-                _rpt = ps.report
-                st.session_state["lcola_report"]       = _rpt
-                st.session_state["_lcola_n_blackouts"] = len(_rpt.blackout_windows)
-                st.session_state["_lcola_n_events"]    = len(_rpt.top_events)
-                st.toast(
-                    f"🛸 LCOLA 飞越筛选完成！  {len(_rpt.blackout_windows)} 个禁发窗口 · {len(_rpt.top_events)} 条合取事件",
-                    icon="✅",
-                )
-            st.rerun()
-            return
+            # ── task completed ────────────────────────────────────────────
+            if ps.done:
+                st.session_state["_lcola_running"] = False
+                if ps.error:
+                    st.session_state["_lcola_error"] = ps.error
+                elif ps.report is not None:
+                    _rpt = ps.report
+                    st.session_state["lcola_report"]       = _rpt
+                    st.session_state["_lcola_n_blackouts"] = len(_rpt.blackout_windows)
+                    st.session_state["_lcola_n_events"]    = len(_rpt.top_events)
+                    st.toast(
+                        f"🛸 LCOLA 飞越筛选完成！  {len(_rpt.blackout_windows)} 个禁发窗口 · "
+                        f"{len(_rpt.top_events)} 条合取事件",
+                        icon="✅",
+                    )
+                st.rerun()
+                return
 
-        # ── still running: skip render if nothing changed since last tick ─
-        _last = st.session_state.get("_lcola_last_step", -1)
-        step, total = ps.step, (ps.total or n_steps_est)
-        if step == _last and step > 0:
-            return                 # nothing changed; avoid redundant rerender
-        st.session_state["_lcola_last_step"] = step
+            # ── still running: skip if nothing changed ────────────────────
+            _last = st.session_state.get("_lcola_last_step", -1)
+            step, total = ps.step, (ps.total or n_steps_est)
+            if step == _last and step > 0:
+                return
+            st.session_state["_lcola_last_step"] = step
 
-        pct = min(step / max(total, 1), 0.99)
-        elapsed = _time_mod.time() - ps.start_time
-        eta_s = ""
-        if step > 0:
-            rate      = elapsed / step
-            remaining = rate * (total - step)
-            eta_s     = f"  预计剩余 {remaining:.0f}s"
-        st.progress(
-            pct,
-            text=f"飞越筛选中… {step}/{total} 个发射时刻  ⏱ {elapsed:.0f}s{eta_s}",
-        )
-        st.info(
-            f"⏳ 正在后台计算（{step}/{total}），您可以切换到其他页面，完成后将在右上角弹窗通知。"
-        )
+            pct = min(step / max(total, 1), 0.99)
+            elapsed = _time_mod.time() - ps.start_time
+            eta_s = f"  预计剩余 {elapsed / step * (total - step):.0f}s" if step > 0 else ""
+            st.progress(
+                pct,
+                text=f"飞越筛选中… {step}/{total} 个发射时刻  ⏱ {elapsed:.0f}s{eta_s}",
+            )
+            st.info(
+                f"⏳ 正在后台计算（{step}/{total}），您可以切换到其他页面，完成后将在右上角弹窗通知。"
+            )
 
-    _lcola_progress_fragment()
+        _lcola_progress_fragment()
 
     # ── 错误提示 ────────────────────────────────────────────────────────────
     if "lcola_error" in st.session_state:
