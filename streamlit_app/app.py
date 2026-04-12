@@ -68,6 +68,42 @@ def run_query(sql: str, params: dict = {}) -> pd.DataFrame:
         sess.close()
 
 
+def _bar_chart_zero(data: "pd.Series | pd.DataFrame") -> None:
+    """st.bar_chart replacement that forces the y-axis to start at zero."""
+    import altair as alt
+    df = data.reset_index()
+    cols = df.columns.tolist()
+    x_col, y_col = cols[0], cols[1]
+    chart = (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X(x_col, sort=None, title=x_col),
+            y=alt.Y(y_col, scale=alt.Scale(zero=True), title=y_col),
+        )
+        .properties(height=300)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
+def _line_chart_zero(data: "pd.DataFrame") -> None:
+    """st.line_chart replacement that forces the y-axis to start at zero."""
+    import altair as alt
+    df = data.reset_index()
+    cols = df.columns.tolist()
+    x_col, y_col = cols[0], cols[1]
+    chart = (
+        alt.Chart(df)
+        .mark_line(point=False)
+        .encode(
+            x=alt.X(x_col, title=x_col),
+            y=alt.Y(y_col, scale=alt.Scale(zero=True), title=y_col),
+        )
+        .properties(height=300)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
 # ------------------------------------------------------------------
 # 侧边栏导航
 # ------------------------------------------------------------------
@@ -182,7 +218,7 @@ if page == "🌍 系统概览":
             ORDER BY 数量 DESC
         """)
         if not type_df.empty:
-            st.bar_chart(type_df.set_index("类型")["数量"])
+            _bar_chart_zero(type_df.set_index("类型")["数量"])
         else:
             st.info("暂无数据，请先运行：`python3 run.py ingest`")
 
@@ -198,7 +234,7 @@ if page == "🌍 系统概览":
             ORDER BY 1
         """)
         if not alt_df.empty:
-            st.bar_chart(alt_df.set_index("高度区间_km")["数量"])
+            _bar_chart_zero(alt_df.set_index("高度区间_km")["数量"])
         else:
             st.info("暂无高度数据")
 
@@ -556,7 +592,7 @@ elif page == "☄️ 碰撞风险":
                 "阶段": [phase_names_cn.get(s.phase_name, s.phase_name) for s in summaries],
                 "最大 Pc": [s.max_pc if s.max_pc > 0 else 1e-15 for s in summaries],
             }).set_index("阶段")
-            st.bar_chart(pc_chart)
+            st.bar_chart(pc_chart)  # Pc values always ≥ 0; native chart OK for fallback
             st.caption(f"Pc 门限参考：载人 1e-6，普通载荷 1e-5")
 
         # ── 分阶段详细事件 ────────────────────────────────────────────────────
@@ -904,7 +940,7 @@ elif page == "🚀 轨迹仿真":
                 "MET (s)": [p.t_met_s for p in nom],
                 "高度 (km)": [p.alt_km for p in nom],
             }).set_index("MET (s)")
-            st.line_chart(df_alt)
+            _line_chart_zero(df_alt)
 
         with col_r:
             st.subheader("速度大小随时间变化 (km/s)")
@@ -912,7 +948,7 @@ elif page == "🚀 轨迹仿真":
                 "MET (s)": [p.t_met_s for p in nom],
                 "速度 (km/s)": [float(np.linalg.norm(p.vel_eci)) for p in nom],
             }).set_index("MET (s)")
-            st.line_chart(df_vel)
+            _line_chart_zero(df_vel)
 
         # 质量消耗
         st.subheader("质量随时间变化 (kg)")
@@ -920,7 +956,7 @@ elif page == "🚀 轨迹仿真":
             "MET (s)": [p.t_met_s for p in nom],
             "质量 (kg)": [p.mass_kg for p in nom],
         }).set_index("MET (s)")
-        st.line_chart(df_mass)
+        _line_chart_zero(df_mass)
 
         # 位置轨迹表
         with st.expander("状态向量数据表（前100行）"):
@@ -946,7 +982,7 @@ elif page == "🚀 轨迹仿真":
                 "MET (s)": mc_times[:n],
                 "位置1σ (km)": sigma_pos,
             }).set_index("MET (s)")
-            st.line_chart(df_cov)
+            _line_chart_zero(df_cov)
 
 # ------------------------------------------------------------------
 # 页面：OEM 管理
@@ -1200,7 +1236,7 @@ elif page == "⚠️ LCOLA 飞越筛选":
                 "偏移量(s)": [r.t_launch_offset_s for r in report.results],
                 "最大 Pc":   [r.max_pc            for r in report.results],
             }).set_index("偏移量(s)")
-            st.line_chart(df_pc)
+            _line_chart_zero(df_pc)
             st.caption(f"Pc 门限 = {report.pc_threshold:.0e}（{'载人' if crewed else '非载人'}任务）")
 
         # 禁发/安全窗口
@@ -1258,4 +1294,4 @@ elif page == "⚠️ LCOLA 飞越筛选":
             from collections import Counter
             phase_cnt = Counter(ev.phase for ev in report.top_events)
             df_ph = pd.DataFrame(list(phase_cnt.items()), columns=["阶段", "合取事件数"])
-            st.bar_chart(df_ph.set_index("阶段"))
+            _bar_chart_zero(df_ph.set_index("阶段"))
