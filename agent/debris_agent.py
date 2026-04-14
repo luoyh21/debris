@@ -11,15 +11,26 @@ import json
 import logging
 from typing import List, Dict, Any
 
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, APIStatusError, OpenAI
 from sqlalchemy import text
 
-from config.settings import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+from config.settings import (
+    OPENAI_API_KEY,
+    OPENAI_BASE_URL,
+    OPENAI_MAX_RETRIES,
+    OPENAI_MODEL,
+    OPENAI_TIMEOUT,
+)
 from database.db import session_scope
 
 log = logging.getLogger(__name__)
 
-_client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+_client = OpenAI(
+    api_key=OPENAI_API_KEY or "missing-key",
+    base_url=OPENAI_BASE_URL,
+    timeout=OPENAI_TIMEOUT,
+    max_retries=OPENAI_MAX_RETRIES,
+)
 
 # ------------------------------------------------------------------
 # Tool definitions
@@ -462,13 +473,40 @@ def chat(history: List[Dict], user_message: str) -> str:
     messages.append({"role": "user", "content": user_message})
 
     for _ in range(8):      # max tool-call rounds (allows 2-3 retry cycles)
-        response = _client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            temperature=0.2,
-        )
+        try:
+            response = _client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                temperature=0.2,
+            )
+        except APITimeoutError as exc:
+            log.warning("OpenAI request timed out: %s", exc)
+            return (
+                "请求 LLM 超时（APITimeout）。可能原因：\n"
+                "1）模型或网关响应慢——可在 .env 增大 OPENAI_TIMEOUT（当前服务端为 "
+                f"{OPENAI_TIMEOUT:g}s）；\n"
+                "2）应用跑在 Docker/Colima 内，而 OPENAI_BASE_URL 是公司内网域名——"
+                "容器里往往访问不到内网，需在宿主机直连 VPN/内网，或把网关换成容器可访问的地址。"
+            )
+        except APIConnectionError as exc:
+            log.warning("OpenAI connection failed: %s", exc)
+            return (
+                "无法连接到 LLM 服务（连接错误）。请检查 OPENAI_BASE_URL 是否可从运行环境访问："
+                "若在 Docker 中运行，内网网关常需额外路由或 host 网络；并确认本机 VPN/代理已连通。"
+                f"\n详情：{exc}"
+            )
+        except APIStatusError as exc:
+            log.warning("OpenAI API error: %s", exc)
+            if getattr(exc, "status_code", None) == 404:
+                return (
+                    "LLM 网关返回 404：常见原因是 OPENAI_BASE_URL 缺少 **/v1**。"
+                    "兼容 OpenAI 的网关应配置为 `https://你的域名/v1`（程序也会自动补全 `/v1`）。"
+                    f"\n当前使用的 base_url：`{OPENAI_BASE_URL}`"
+                )
+            return f"LLM 接口错误（HTTP {getattr(exc, 'status_code', '?')}）：{exc}"
+
         msg = response.choices[0].message
 
         if not msg.tool_calls:

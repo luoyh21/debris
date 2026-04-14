@@ -18,6 +18,8 @@ import streamlit as st
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+from streamlit_app.nav_icons import icon_inline, section_title, title_row
+
 log = logging.getLogger(__name__)
 
 # ─── Keplerian two-body propagation helpers ───────────────────────────────────
@@ -652,7 +654,7 @@ def make_mission_fig(
         textfont=dict(color="white", size=11),
         textposition="top center",
         hovertemplate=(
-            f"🚀 T+{t_slider_s:.0f}s<br>"
+            f"LV · T+{t_slider_s:.0f}s<br>"
             f"Alt: {rp.alt_km:.1f} km<br>"
             f"Lat: {rp.lat_deg:.2f}°  Lon: {rp.lon_deg:.2f}°<br>"
             f"V: {vel_kms:.3f} km/s"
@@ -835,11 +837,11 @@ def make_proximity_2d(rp, nearby_df: pd.DataFrame, search_radius_km: float) -> g
         mode="markers+text",
         marker=dict(size=16, color="#00FF55", symbol="star",
                     line=dict(color="white", width=1.5)),
-        text=["🚀"],
+        text=["LV"],
         textfont=dict(size=13),
         textposition="top center",
         hovertemplate=(
-            f"🚀  T+{rp.t_met_s:.0f}s<br>"
+            f"LV · T+{rp.t_met_s:.0f}s<br>"
             f"Alt: {alt_r:.1f} km<br>"
             f"Lat: {lat_r:.2f}°  Lon: {lon_r:.2f}°<br>"
             f"V: {vel_kms:.3f} km/s"
@@ -886,7 +888,7 @@ def _render_global_view():
     col_ctrl, col_map = st.columns([1, 3.2], gap="medium")
 
     with col_ctrl:
-        st.markdown("##### 🎛️ 筛选")
+        st.markdown(section_title("sliders", "筛选", level=4, icon_size=20), unsafe_allow_html=True)
         alt_range = st.slider("高度范围 (km)", 0, 42000, (0, 2000), step=50,
                               key="gv_alt")
         obj_type  = st.selectbox("目标类型",
@@ -895,7 +897,7 @@ def _render_global_view():
         n_limit   = st.slider("显示上限", 2000, 30000, 12000, step=1000,
                               key="gv_limit")
 
-        if st.button("🔄 刷新", key="gv_refresh"):
+        if st.button("刷新数据", key="gv_refresh"):
             load_positions_now.clear()
             st.rerun()
 
@@ -908,10 +910,20 @@ def _render_global_view():
             )
 
         st.markdown("---")
+        _gv_ortho, _gv_flat = "正射球面", "平面交互地图"
+        st.caption("视图模式")
+        st.markdown(
+            '<div style="display:flex;gap:14px;align-items:center;font-size:12px;'
+            'color:#475569;margin:2px 0 6px 0">'
+            f'{icon_inline("overview", 17)}<span>正射球面</span>'
+            f'{icon_inline("globe_flat", 17)}<span>平面地图</span></div>',
+            unsafe_allow_html=True,
+        )
         view_mode = st.radio(
-            "视图模式",
-            ["🌍 正射球面", "🗺️ 平面交互地图"],
-            key="gv_view",
+            "选项",
+            [_gv_ortho, _gv_flat],
+            key="gv_view_v2",
+            label_visibility="collapsed",
         )
 
     with col_map:
@@ -935,7 +947,7 @@ def _render_global_view():
             f"火箭级 {(df['object_type']=='ROCKET BODY').sum():,}"
         )
 
-        if view_mode == "🌍 正射球面":
+        if view_mode == _gv_ortho:
             fig_globe = make_globe_ortho(df)
             st.plotly_chart(fig_globe, use_container_width=True,
                             config=dict(scrollZoom=True, displayModeBar=False))
@@ -986,7 +998,7 @@ def _render_global_view():
     # ── Altitude histogram (full width) ─────────────────────────────────────
     leo_df = df[df["alt_km"] <= 2100]
     if not leo_df.empty:
-        st.markdown("##### 高度分布（LEO 段）")
+        st.markdown(section_title("chart_bar", "高度分布（LEO 段）", level=4, icon_size=18), unsafe_allow_html=True)
         st.plotly_chart(make_altitude_hist(leo_df), use_container_width=True,
                         config=dict(displayModeBar=False))
 
@@ -1024,6 +1036,8 @@ def _render_layer_drilldown():
             )
             if st.button("选择", key=f"lb_{layer['id']}", use_container_width=True):
                 st.session_state["ld_layer"] = layer["id"]
+                # Reset slider to default for the new layer
+                st.session_state["ld_pts"] = 5000
                 load_positions_now.clear()
                 st.rerun()
 
@@ -1044,7 +1058,7 @@ def _render_layer_drilldown():
             "目标类型", ["ALL", "DEBRIS", "PAYLOAD", "ROCKET BODY"],
             key="ld_type",
         )
-        max_pts = st.slider("最大点数", 1000, 20000, 5000, step=500, key="ld_pts")
+        max_pts = st.slider("最大点数", 1000, 30000, 5000, step=500, key="ld_pts")
         st.markdown("---")
         st.markdown("**颜色**")
         for k, c in _TYPE_HEX.items():
@@ -1069,9 +1083,10 @@ def _render_layer_drilldown():
         if df3d.empty:
             st.info("该轨道层暂无数据")
         else:
+            at_limit = len(df3d) >= max_pts
             st.caption(
                 f"**{cur['label']}** 层内目标 {len(df3d):,} 个"
-                + (f"（已达上限 {max_pts:,}，实际更多）" if len(df3d) >= max_pts else "（全部显示）")
+                + (f"（已达上限 {max_pts:,}，实际更多）" if at_limit else "（全部显示）")
             )
             fig3d = make_3d_sphere(df3d, layer=cur, max_pts=max_pts)
             st.plotly_chart(fig3d, use_container_width=True,
@@ -1079,7 +1094,7 @@ def _render_layer_drilldown():
 
     # Detail table
     if not df3d.empty:
-        with st.expander(f"📋 {cur['label']} 层目标列表（前 30）", expanded=False):
+        with st.expander(f"{cur['label']} 层 · 目标列表（前 30）", expanded=False):
             st.dataframe(
                 df3d[["norad_cat_id","name","object_type","alt_km",
                        "perigee_km","apogee_km","inclination","country_code"]]
@@ -1095,7 +1110,6 @@ def _render_layer_drilldown():
 
 
 def _render_mission_slider():
-    st.markdown("#### 🚀 发射任务安全时滑")
     st.caption(
         "运行 6-DOF 仿真 → 时间轴拖动 → 实时查询火箭附近碎片 → "
         "3D 近场态势（火箭坐标系，火箭固定在原点，支持深度缩放）+ 2D 近场切片。"
@@ -1103,7 +1117,7 @@ def _render_mission_slider():
     )
 
     # ── Sim config ──────────────────────────────────────────────────────────
-    with st.expander("⚙️ 仿真参数", expanded=not bool(st.session_state.get("ms_result"))):
+    with st.expander("仿真参数", expanded=not bool(st.session_state.get("ms_result"))):
         c1, c2, c3, c4 = st.columns(4)
         vehicle   = c1.selectbox("运载火箭", ["CZ-5B", "Falcon9", "Ariane6"], key="ms_veh")
         lat_l     = c2.number_input("发射纬度 (°)", value=19.61, step=0.1, key="ms_lat")
@@ -1118,9 +1132,9 @@ def _render_mission_slider():
                                     max_value=30, step=1, key="ms_dt")
         radius_km = c7.number_input("搜索半径 (km)", value=500, min_value=50,
                                     max_value=2000, step=50, key="ms_rad")
-        auto_stop = c8.checkbox("🛰 自动到轨停止",  value=True, key="ms_auto_stop",
+        auto_stop = c8.checkbox("自动到轨停止",  value=True, key="ms_auto_stop",
                                 help="检测到入轨（近地点 > 150 km）后立即停止仿真，避免多余的轨道圈。")
-        run_btn   = st.button("▶ 运行仿真", type="primary", key="ms_run",
+        run_btn   = st.button("运行仿真", type="primary", key="ms_run",
                               use_container_width=True)
 
     # ── Run simulation ──────────────────────────────────────────────────────
@@ -1150,7 +1164,7 @@ def _render_mission_slider():
                 st.session_state["ms_vehicle"]    = vehicle
                 st.session_state["ms_radius"]     = float(radius_km)
                 st.success(
-                    f"✅ {vehicle} 仿真完成 — "
+                    f"{vehicle} 仿真完成 — "
                     f"{len(result.nominal)} 个轨迹点 · "
                     f"最终高度 {result.nominal[-1].alt_km:.1f} km · "
                     f"最终速度 {float(np.linalg.norm(result.nominal[-1].vel_eci)):.3f} km/s"
@@ -1171,11 +1185,11 @@ def _render_mission_slider():
     rad        = st.session_state.get("ms_radius", float(radius_km))
 
     # ── Phase event markers for the timeline ───────────────────────────────
-    phase_marks: dict[int, str] = {0: "🚀 起飞"}
-    if sim.t_meco1:        phase_marks[int(sim.t_meco1)]       = "✂️ MECO1"
-    if sim.t_stage_sep:    phase_marks[int(sim.t_stage_sep)]   = "🔩 级间分离"
-    if sim.t_meco2:        phase_marks[int(sim.t_meco2)]       = "✂️ MECO2"
-    if sim.t_payload_sep:  phase_marks[int(sim.t_payload_sep)] = "🛰 载荷分离"
+    phase_marks: dict[int, str] = {0: "起飞"}
+    if sim.t_meco1:        phase_marks[int(sim.t_meco1)]       = "MECO1"
+    if sim.t_stage_sep:    phase_marks[int(sim.t_stage_sep)]   = "级间分离"
+    if sim.t_meco2:        phase_marks[int(sim.t_meco2)]       = "MECO2"
+    if sim.t_payload_sep:  phase_marks[int(sim.t_payload_sep)] = "载荷分离"
 
     # ── Time slider (full-width) ─────────────────────────────────────────────
     st.markdown("---")
@@ -1218,11 +1232,11 @@ def _render_mission_slider():
             pass   # fall back to stale MECO values
 
     phase_tag = (
-        "🛰️ 轨道惯性飞行" if in_orbit_coast else
-        "🔥 大气层内"     if rp.alt_km < 100 else
-        "🚀 上升末段"     if rp.alt_km < 200 else
-        "🌌 亚轨道"       if vel_kms < 5    else
-        "🛰️ 轨道注入"
+        "轨道惯性飞行" if in_orbit_coast else
+        "大气层内"     if rp.alt_km < 100 else
+        "上升末段"     if rp.alt_km < 200 else
+        "亚轨道"       if vel_kms < 5    else
+        "轨道注入"
     )
 
     # Nearest phase event for info table
@@ -1291,10 +1305,10 @@ def _render_mission_slider():
                    delta=None)
         high_risk = (nearby["dist_km"] < 20).sum()
         mc4.metric("< 20 km 目标", high_risk,
-                   delta="⚠️ 需关注" if high_risk > 0 else None,
+                   delta="需关注" if high_risk > 0 else None,
                    delta_color="inverse")
 
-        with st.expander(f"📋 附近目标（{len(nearby)} 个，半径 {rad:.0f} km）", expanded=False):
+        with st.expander(f"附近目标（{len(nearby)} 个，半径 {rad:.0f} km）", expanded=False):
             disp = nearby[["norad_cat_id","name","object_type","alt_km","dist_km"]].copy()
             disp.columns = ["NORAD ID","名称","类型","高度(km)","距离(km)"]
             st.dataframe(disp, use_container_width=True, hide_index=True)
@@ -1304,7 +1318,7 @@ def _render_mission_slider():
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 def render_viz_explorer():
-    st.title("🌐 空间碎片可视化探索")
+    st.markdown(title_row("viz", "空间碎片可视化探索"), unsafe_allow_html=True)
     st.caption(
         "三维沉浸式探索平台  ·  "
         "全球碎片实时态势  ·  "
@@ -1312,14 +1326,42 @@ def render_viz_explorer():
         "发射任务安全时滑"
     )
 
-    tab1, tab2, tab3 = st.tabs([
-        "🌍 全球碎片态势",
-        "📊 高度分层下钻",
-        "🚀 发射安全时滑",
-    ])
-    with tab1:
+    if "viz_sub_idx" not in st.session_state:
+        st.session_state.viz_sub_idx = 0
+
+    _viz_tabs = [
+        ("overview", "全球碎片态势"),
+        ("layers", "高度分层下钻"),
+        ("timeline", "发射安全时滑"),
+    ]
+    tc1, tc2, tc3 = st.columns(3, gap="small")
+    for col, i, (icon_id, label) in zip((tc1, tc2, tc3), range(3), _viz_tabs):
+        with col:
+            ic_col, btn_col = st.columns([0.15, 0.85], gap="small")
+            with ic_col:
+                st.markdown(
+                    '<div style="display:flex;align-items:center;justify-content:center;'
+                    'min-height:2.5rem">'
+                    f"{icon_inline(icon_id, 22)}</div>",
+                    unsafe_allow_html=True,
+                )
+            with btn_col:
+                _on = st.session_state.viz_sub_idx == i
+                if st.button(
+                    label,
+                    key=f"viz_sub_{i}",
+                    use_container_width=True,
+                    type="primary" if _on else "secondary",
+                ):
+                    if st.session_state.viz_sub_idx != i:
+                        st.session_state.viz_sub_idx = i
+                        st.rerun()
+
+    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+    _idx = int(st.session_state.viz_sub_idx)
+    if _idx == 0:
         _render_global_view()
-    with tab2:
+    elif _idx == 1:
         _render_layer_drilldown()
-    with tab3:
+    else:
         _render_mission_slider()

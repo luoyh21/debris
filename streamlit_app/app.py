@@ -13,6 +13,43 @@ import time as _time_mod
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import text
 
+from streamlit_app.nav_icons import (
+    SIDEBAR_NAV_BLUE_CSS,
+    icon_inline,
+    risk_dot_html,
+    section_title,
+    sidebar_brand_row,
+    title_row,
+)
+
+_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+_FAVICON_PATH = os.path.join(_ASSETS_DIR, "favicon.svg")
+
+NAV_PAGES = [
+    ("overview", "系统概览", "overview"),
+    ("viz", "可视化探索", "viz"),
+    ("catalog", "目标目录", "catalog"),
+    ("segments", "轨迹片段", "segments"),
+    ("sim", "轨迹仿真", "sim"),
+    ("oem", "OEM 管理", "oem"),
+    ("lcola", "LCOLA 飞越筛选", "lcola"),
+    ("collision", "碰撞风险", "collision"),
+    ("ai", "AI 助手", "ai"),
+]
+
+
+def _norad_display(nid) -> str:
+    """Catalog NORAD IDs are positive; synthetic demo threats use negative placeholders."""
+    if nid is None:
+        return "—"
+    try:
+        n = int(nid)
+    except (TypeError, ValueError):
+        return str(nid)
+    if n < 0:
+        return f"合成 #{abs(n)}"
+    return str(n)
+
 
 class _LcolaProgress:
     """Thread-safe progress container for LCOLA background screening.
@@ -36,7 +73,7 @@ class _LcolaProgress:
 
 st.set_page_config(
     page_title="空间碎片监测系统",
-    page_icon="🛸",
+    page_icon=_FAVICON_PATH if os.path.isfile(_FAVICON_PATH) else "🛸",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -114,16 +151,44 @@ def _line_chart_zero(data: "pd.DataFrame") -> None:
 
 
 # ------------------------------------------------------------------
-# 侧边栏导航
+# 侧边栏导航（SVG 图标 + 文本按钮）
 # ------------------------------------------------------------------
-st.sidebar.title("🛸 空间碎片监测系统")
-page = st.sidebar.radio(
-    "导航菜单",
-    ["🌍 系统概览", "🌐 可视化探索", "📚 目标目录", "🛤️ 轨迹片段", "🚀 轨迹仿真", "📄 OEM 管理", "⚠️ LCOLA 飞越筛选", "☄️ 碰撞风险", "💬 AI 助手"],
-)
+if "nav_page" not in st.session_state:
+    st.session_state["nav_page"] = "overview"
+
+st.sidebar.markdown(sidebar_brand_row(), unsafe_allow_html=True)
+st.sidebar.markdown(SIDEBAR_NAV_BLUE_CSS, unsafe_allow_html=True)  # 全局 primary 蓝色主题
+st.sidebar.caption("功能导航")
+for _nav_key, _nav_label, _nav_icon in NAV_PAGES:
+    _c_ic, _c_bt = st.sidebar.columns([0.14, 0.86])
+    with _c_ic:
+        st.markdown(
+            f'<div style="padding-top:10px">{icon_inline(_nav_icon, 20)}</div>',
+            unsafe_allow_html=True,
+        )
+    with _c_bt:
+        _active = st.session_state["nav_page"] == _nav_key
+        if st.button(
+            _nav_label,
+            key=f"nav_{_nav_key}",
+            use_container_width=True,
+            type="primary" if _active else "secondary",
+        ):
+            if st.session_state["nav_page"] != _nav_key:
+                st.session_state["nav_page"] = _nav_key
+                st.rerun()
+
+page = st.session_state["nav_page"]
+
 st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
 st.sidebar.caption("数据来源：Space-Track.org")
+
+# Track current page in session_state so sidebar fragments can read it.
+# Also clear LCOLA done notification when user visits the LCOLA page.
+st.session_state["_current_page"] = page
+if page == "lcola":
+    st.session_state.pop("_lcola_done_notify", None)
 
 # ── 全局后台任务轮询（每 30 秒自动检测完成，触发 toast + 全页刷新）───────────────
 @st.fragment(run_every=30)
@@ -145,16 +210,16 @@ def _bg_poll_fragment():
     st.session_state["_lcola_running"] = False
     if ps.error:
         st.session_state["_lcola_error"] = ps.error
-        st.toast(f"❌ LCOLA 计算失败：{ps.error}", icon="❌")
+        st.toast(f"LCOLA 计算失败：{ps.error}")
     elif ps.report is not None:
         _rpt = ps.report
         st.session_state["lcola_report"]       = _rpt
         st.session_state["_lcola_n_blackouts"] = len(_rpt.blackout_windows)
         st.session_state["_lcola_n_events"]    = len(_rpt.top_events)
+        st.session_state["_lcola_done_notify"] = True
         st.toast(
-            f"🛸 LCOLA 飞越筛选完成！  {len(_rpt.blackout_windows)} 个禁发窗口 · "
+            f"LCOLA 飞越筛选完成：{len(_rpt.blackout_windows)} 个禁发窗口 · "
             f"{len(_rpt.top_events)} 条合取事件",
-            icon="✅",
         )
     st.rerun()
 
@@ -167,31 +232,42 @@ _bg_poll_fragment()
 with st.sidebar:
     @st.fragment(run_every=30)
     def _sidebar_lcola_fragment():
-        if not st.session_state.get("_lcola_running"):
+        running = st.session_state.get("_lcola_running")
+        done_notify = st.session_state.get("_lcola_done_notify")
+        if not running and not done_notify:
             return
-        ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
-        if ps is None:
-            return
-        if ps.total > 0:
-            step    = ps.step
-            total   = ps.total
-            elapsed = _time_mod.time() - ps.start_time
-            eta_str = f" · 剩余≈{elapsed / step * (total - step):.0f}s" if step > 0 else ""
-            sb_text = f"⏳ LCOLA 计算中 {step}/{total}{eta_str}"
-        else:
-            sb_text = "⏳ LCOLA 正在后台计算…"
-        st.markdown(
-            f'<span style="color:#ffcc00;font-size:12px">{sb_text}</span>',
-            unsafe_allow_html=True,
-        )
+        if running:
+            ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
+            if ps is None:
+                return
+            if ps.total > 0:
+                step    = ps.step
+                total   = ps.total
+                elapsed = _time_mod.time() - ps.start_time
+                eta_str = f" · 剩余≈{elapsed / step * (total - step):.0f}s" if step > 0 else ""
+                sb_text = f"LCOLA 计算中 {step}/{total}{eta_str}"
+            else:
+                sb_text = "LCOLA 正在后台计算…"
+            st.markdown(
+                f'<span style="color:#ffcc00;font-size:12px">{sb_text}</span>',
+                unsafe_allow_html=True,
+            )
+        elif done_notify:
+            n_bo = st.session_state.get("_lcola_n_blackouts", "?")
+            n_ev = st.session_state.get("_lcola_n_events", "?")
+            st.markdown(
+                f'<span style="color:#00cc66;font-size:12px">'
+                f'LCOLA 完成：{n_bo} 个禁发窗口 · {n_ev} 条合取事件</span>',
+                unsafe_allow_html=True,
+            )
 
     _sidebar_lcola_fragment()
 
 # ------------------------------------------------------------------
 # 页面：系统概览
 # ------------------------------------------------------------------
-if page == "🌍 系统概览":
-    st.title("🌍 空间环境概览")
+if page == "overview":
+    st.markdown(title_row("overview", "空间环境概览"), unsafe_allow_html=True)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -217,7 +293,7 @@ if page == "🌍 系统概览":
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.subheader("📊 目标类型分布")
+        st.markdown(section_title("chart_bar", "目标类型分布"), unsafe_allow_html=True)
         type_df = run_query("""
             SELECT
                 CASE object_type
@@ -237,7 +313,7 @@ if page == "🌍 系统概览":
             st.info("暂无数据，请先运行：`python3 run.py ingest`")
 
     with col_right:
-        st.subheader("📈 轨道高度分布（近地点，km）")
+        st.markdown(section_title("chart_line", "轨道高度分布（近地点，km）"), unsafe_allow_html=True)
         alt_df = run_query("""
             SELECT
                 FLOOR(perigee_km / 200) * 200 AS 高度区间_km,
@@ -252,7 +328,7 @@ if page == "🌍 系统概览":
         else:
             st.info("暂无高度数据")
 
-    st.subheader("🌐 主要国家在轨目标数量（Top 15）")
+    st.markdown(section_title("globe_meridians", "主要国家在轨目标数量（Top 15）"), unsafe_allow_html=True)
     country_df = run_query("""
         SELECT
             country_code AS 国家代码,
@@ -268,7 +344,7 @@ if page == "🌍 系统概览":
     if not country_df.empty:
         st.dataframe(country_df, use_container_width=True)
 
-    st.subheader("📥 数据摄入状态")
+    st.markdown(section_title("download", "数据摄入状态"), unsafe_allow_html=True)
     status_df = run_query("""
         SELECT
             source AS 来源,
@@ -287,17 +363,17 @@ if page == "🌍 系统概览":
 # ------------------------------------------------------------------
 # 页面：可视化探索
 # ------------------------------------------------------------------
-elif page == "🌐 可视化探索":
+elif page == "viz":
     from streamlit_app.viz_explorer import render_viz_explorer
     render_viz_explorer()
 
 # ------------------------------------------------------------------
 # 页面：目标目录
 # ------------------------------------------------------------------
-elif page == "📚 目标目录":
-    st.title("📋 NORAD 目标目录")
+elif page == "catalog":
+    st.markdown(title_row("catalog", "NORAD 目标目录"), unsafe_allow_html=True)
 
-    with st.expander("🔍 筛选条件", expanded=True):
+    with st.expander("筛选条件", expanded=True):
         col1, col2, col3 = st.columns(3)
         obj_type = col1.selectbox(
             "目标类型",
@@ -369,8 +445,8 @@ elif page == "📚 目标目录":
 # ------------------------------------------------------------------
 # 页面：轨迹片段
 # ------------------------------------------------------------------
-elif page == "🛤️ 轨迹片段":
-    st.title("🛰️ 轨迹片段查询")
+elif page == "segments":
+    st.markdown(title_row("segments", "轨迹片段查询"), unsafe_allow_html=True)
     st.caption("由 SGP4 传播器生成，每段为 3D LineStringZ（ECI/大地坐标双存储）")
 
     col1, col2, col3 = st.columns(3)
@@ -425,8 +501,8 @@ elif page == "🛤️ 轨迹片段":
 # ------------------------------------------------------------------
 # 页面：碰撞风险（统一使用 6-DOF 仿真轨迹 + Foster Pc）
 # ------------------------------------------------------------------
-elif page == "☄️ 碰撞风险":
-    st.title("🎯 发射各阶段碰撞风险评估")
+elif page == "collision":
+    st.markdown(title_row("collision", "发射各阶段碰撞风险评估"), unsafe_allow_html=True)
     st.caption(
         "轨迹来源：6-DOF 数值积分（trajectory/six_dof.py）｜"
         "算法：Foster (1992) 2-D Pc 数值积分｜"
@@ -439,7 +515,7 @@ elif page == "☄️ 碰撞风险":
         "固定发射时刻后，将完整飞行轨迹划分为上升段、停泊轨道段等阶段，"
         "逐阶段与在轨碎片进行 TCA 求解 + Foster Pc 计算，输出每个阶段的风险等级（RED/AMBER/YELLOW/GREEN）"
         "及详细合取事件表。\n\n"
-        "📌 **与「⚠️ LCOLA 飞越筛选」的区别**：LCOLA 页面扫描一段时间窗口内的多个候选发射时刻，"
+        "**与「LCOLA 飞越筛选」的区别：** LCOLA 页面扫描一段时间窗口内的多个候选发射时刻，"
         "输出禁射窗口（回答『什么时候发射安全』）；"
         "本页面针对单一固定发射时刻，给出各阶段的具体 Pc 数值和风险等级"
         "（回答『选定时刻的碰撞风险有多高，哪个阶段最危险』）。"
@@ -448,7 +524,7 @@ elif page == "☄️ 碰撞风险":
     # ── 依赖检查 ─────────────────────────────────────────────────────────────
     if "sim_result" not in st.session_state or "sim_phases" not in st.session_state:
         st.info(
-            "请先在 **🚀 轨迹仿真** 页面运行仿真，生成轨迹数据后再来此页面评估碰撞风险。"
+            "请先在 **轨迹仿真** 页面运行仿真，生成轨迹数据后再来此页面评估碰撞风险。"
         )
         st.stop()
 
@@ -456,7 +532,7 @@ elif page == "☄️ 碰撞风险":
     phases = st.session_state["sim_phases"]
 
     # ── 配置区 ────────────────────────────────────────────────────────────────
-    with st.expander("⚙️ 评估参数", expanded=True):
+    with st.expander("评估参数", expanded=True):
         c1, c2, c3, c4 = st.columns(4)
         hbr_m      = c1.number_input("联合硬体半径 HBR (m)", value=20, step=5,
                                      help="火箭 + 碎片外接球半径之和，默认 20 m")
@@ -465,9 +541,9 @@ elif page == "☄️ 碰撞风险":
         fine_km    = c3.number_input("精细筛选距离 (km)", value=50, step=10)
         coarse_km  = c4.number_input("粗筛距离 (km)", value=200, step=50)
         inject_demo = st.checkbox(
-            "🧪 注入演示威胁（Demo Threats）",
+            "注入演示威胁（Demo Threats）",
             value=True,
-            help="注入三个标注为 🧪 DEMO 的合成合取事件，用于展示系统功能。"
+            help="注入三条标注为 DEMO 的合成合取事件（无真实 NORAD 编号，表格中显示为「合成 #n」）。"
                  "真实碎片数据库较小时推荐开启。",
         )
 
@@ -490,7 +566,7 @@ elif page == "☄️ 碰撞风险":
         "POST_SEPARATION": "分离后脱轨段",
     }
 
-    if st.button("▶ 开始碰撞风险评估", type="primary"):
+    if st.button("开始碰撞风险评估", type="primary"):
         from lcola.fly_through import assess_launch_phases
 
         progress_bar = st.progress(0, text="准备评估…")
@@ -534,10 +610,8 @@ elif page == "☄️ 碰撞风险":
         import pandas as pd
         summaries = st.session_state["risk_summaries"]
 
-        risk_icon = {"RED": "🔴", "AMBER": "🟠", "YELLOW": "🟡", "GREEN": "🟢"}
-
         # ── 阶段摘要总览 ──────────────────────────────────────────────────────
-        st.subheader("📊 各飞行阶段风险摘要")
+        st.markdown(section_title("chart_bar", "各飞行阶段风险摘要"), unsafe_allow_html=True)
         summary_rows = []
         for s in summaries:
             summary_rows.append({
@@ -549,12 +623,12 @@ elif page == "☄️ 碰撞风险":
                 "有效评估数":       s.n_evaluated,
                 "合取事件数":       len(s.events),
                 "最大 Pc":          f"{s.max_pc:.3e}" if s.max_pc > 0 else "–",
-                "风险等级":         risk_icon.get(s.risk_level, "") + " " + s.risk_level,
+                "风险等级":         s.risk_level,
             })
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
         # ── Pc 柱状图（各阶段最大 Pc，对数坐标） ────────────────────────────────
-        st.subheader("各阶段最大碰撞概率 (Pc)")
+        st.markdown(section_title("chart_line", "各阶段最大碰撞概率 (Pc)"), unsafe_allow_html=True)
         try:
             import plotly.graph_objects as go
 
@@ -610,15 +684,14 @@ elif page == "☄️ 碰撞风险":
             st.caption(f"Pc 门限参考：载人 1e-6，普通载荷 1e-5")
 
         # ── 分阶段详细事件 ────────────────────────────────────────────────────
-        st.subheader("🔍 各阶段高风险碎片详情")
+        st.markdown(section_title("magnifier", "各阶段高风险碎片详情"), unsafe_allow_html=True)
 
         all_events_rows = []   # collect all for global table
 
         for s in summaries:
             phase_cn = phase_names_cn.get(s.phase_name, s.phase_name)
-            icon      = risk_icon.get(s.risk_level, "")
             with st.expander(
-                f"{icon} {phase_cn}  │  合取事件 {len(s.events)} 条  │  "
+                f"{phase_cn}  │  合取事件 {len(s.events)} 条  │  "
                 f"max Pc = {s.max_pc:.3e}  │  {s.risk_level}",
                 expanded=(s.risk_level in ("RED", "AMBER") and len(s.events) > 0),
             ):
@@ -626,27 +699,32 @@ elif page == "☄️ 碰撞风险":
                     st.info("该阶段无合取事件（距离 > 精细筛选阈值）")
                     continue
 
+                st.markdown(
+                    f'{risk_dot_html(s.risk_level)}<span style="font-weight:600">'
+                    f"{s.risk_level}</span> 阶段风险",
+                    unsafe_allow_html=True,
+                )
                 # Phase risk profile
                 if s.risk_text:
-                    st.caption(f"📝 {s.risk_text}")
+                    st.caption(s.risk_text)
 
                 rows = []
                 for ev in s.events:
                     rows.append({
-                        "风险":             risk_icon.get(ev.risk_level, ""),
-                        "NORAD ID":         ev.norad_cat_id,
+                        "风险等级":         ev.risk_level,
+                        "NORAD ID":         _norad_display(ev.norad_cat_id),
                         "目标名称":         ev.object_name,
                         "TCA (UTC)":        ev.tca.strftime("%m-%d %H:%M:%S"),
                         "最近距离 (km)":    round(ev.miss_distance_km, 3),
                         "Foster Pc":        f"{ev.probability:.4e}",
                         "Pc 误差":          f"{ev.pc_error:.1e}" if not (ev.pc_error != ev.pc_error) else "–",
                         "相对速度 (km/s)":  round(ev.v_rel_kms, 3),
-                        "禁发标记":         "⛔" if ev.is_blackout else "✓",
+                        "禁发标记":         "是" if ev.is_blackout else "否",
                     })
                     all_events_rows.append({
                         "阶段":             phase_cn,
-                        "风险":             risk_icon.get(ev.risk_level, "") + ev.risk_level,
-                        "NORAD ID":         ev.norad_cat_id,
+                        "风险等级":         ev.risk_level,
+                        "NORAD ID":         _norad_display(ev.norad_cat_id),
                         "目标名称":         ev.object_name,
                         "TCA (UTC)":        ev.tca.strftime("%m-%d %H:%M:%S"),
                         "最近距离 (km)":    round(ev.miss_distance_km, 3),
@@ -659,7 +737,7 @@ elif page == "☄️ 碰撞风险":
 
         # ── 全局汇总表（所有阶段合并，按 Pc 降序） ────────────────────────────
         if all_events_rows:
-            st.subheader("📋 全部合取事件汇总（按 Pc 降序）")
+            st.markdown(section_title("clipboard", "全部合取事件汇总（按 Pc 降序）"), unsafe_allow_html=True)
             df_all = pd.DataFrame(all_events_rows)
             st.dataframe(df_all, use_container_width=True, height=500)
 
@@ -669,12 +747,12 @@ elif page == "☄️ 碰撞风险":
             ]
             if blackout_events:
                 st.error(
-                    f"⛔ 发现 {len(blackout_events)} 个**禁发**合取事件"
+                    f"发现 {len(blackout_events)} 个**禁发**合取事件"
                     f"（Pc ≥ {pc_thresh:.0e} 或 Miss Distance < 25 km）"
                 )
                 bo_rows = [{
                     "阶段":            phase_names_cn.get(ev.phase, ev.phase),
-                    "NORAD ID":        ev.norad_cat_id,
+                    "NORAD ID":        _norad_display(ev.norad_cat_id),
                     "目标名称":        ev.object_name,
                     "TCA (UTC)":       ev.tca.strftime("%m-%d %H:%M:%S"),
                     "最近距离 (km)":   round(ev.miss_distance_km, 3),
@@ -683,13 +761,13 @@ elif page == "☄️ 碰撞风险":
                                    key=lambda e: e.probability, reverse=True)]
                 st.dataframe(pd.DataFrame(bo_rows), use_container_width=True)
             else:
-                st.success("✅ 当前发射方案无禁发合取事件")
+                st.success("当前发射方案无禁发合取事件")
 
 # ------------------------------------------------------------------
 # 页面：AI 助手
 # ------------------------------------------------------------------
-elif page == "💬 AI 助手":
-    st.title("💬 AI 碎片分析助手")
+elif page == "ai":
+    st.markdown(title_row("ai", "AI 碎片分析助手"), unsafe_allow_html=True)
     st.caption(
         "可用自然语言询问碎片数据库或调用 MCP 工具，例如：\n"
         "- 「低地球轨道（200~2000km）有多少碎片？按目标类型和国家统计前5名」\n"
@@ -698,11 +776,11 @@ elif page == "💬 AI 助手":
     )
 
     # ── MCP 工具文档面板 ──────────────────────────────────────────────
-    with st.expander("🔧 可用 MCP 工具（5 个）", expanded=False):
+    with st.expander("可用 MCP 工具（5 个）", expanded=False):
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             st.markdown("""
-**🛰️ query_debris_in_region**
+**query_debris_in_region**
 
 在指定地理区域和高度范围内检索在轨空间目标。
 
@@ -723,7 +801,7 @@ elif page == "💬 AI 助手":
 
 ---
 
-**🌍 get_debris_reentry_forecast**
+**get_debris_reentry_forecast**
 
 预报即将再入大气层的空间目标。查询 `catalog_objects` 中已有 `decay_date` 或近地点过低的目标。
 
@@ -742,7 +820,7 @@ elif page == "💬 AI 助手":
 
 ---
 
-**📡 get_object_tle**
+**get_object_tle**
 
 获取指定 NORAD 编号目标的最新 TLE 轨道根数，可用于外部 SGP4 传播计算。
 
@@ -758,7 +836,7 @@ elif page == "💬 AI 助手":
 """)
         with col_t2:
             st.markdown("""
-**🚀 predict_launch_collision_risk**
+**predict_launch_collision_risk**
 
 对指定发射任务进行 6-DOF 仿真 + Foster Pc 碰撞风险评估。
 
@@ -772,14 +850,14 @@ elif page == "💬 AI 助手":
 | `t_max_s` | 仿真时长（秒，600~7200） | 3600 |
 | `include_demo_threats` | 是否注入演示威胁 | true |
 
-**返回：** 各阶段风险等级（🔴🟠🟡🟢）、最高 Pc 合取事件列表、中文建议
+**返回：** 各阶段风险等级（RED/AMBER/YELLOW/GREEN）、最高 Pc 合取事件列表、中文建议
 
 **示例：**
 > 「用长征五号B从文昌发射，方位角90°，预测明天06:00 UTC的碰撞风险」
 
 ---
 
-**🔍 query_debris_by_rcs**
+**query_debris_by_rcs**
 
 按雷达截面积（RCS）大小类别筛选空间目标，用于威胁辨别与目录完整性分析。
 
@@ -802,22 +880,22 @@ RCS 分级：
 """)
 
     # ── 示例问题快捷按钮 ─────────────────────────────────────────────
-    st.markdown("##### 💡 示例问题")
+    st.markdown(section_title("idea", "示例问题", level=4, icon_size=18), unsafe_allow_html=True)
     example_cols = st.columns(3)
     _examples = [
-        ("🛰️ 区域碎片查询",
+        ("区域碎片查询",
          "搜索文昌发射场（19.61°N, 110.95°E）上空500km范围内、高度200~2000km的碎片，列出前20个"),
-        ("🚀 发射风险预测",
+        ("发射风险预测",
          "用长征五号B从文昌（纬度19.61°，经度110.95°）向正东方向发射，"
          "预测明天06:00 UTC发射的各阶段碰撞风险，给出风险等级和建议"),
-        ("📊 轨道带分布",
+        ("轨道带分布",
          "统计低地球轨道（perigee_km 200~2000km）内各类型目标数量，"
          "按 object_type 分组并列出代表性目标名称各3个"),
-        ("🌍 再入预报",
+        ("再入预报",
          "预测未来30天内有哪些空间目标即将再入大气层，列出确认再入日期和近地点高度"),
-        ("📡 获取 TLE",
+        ("获取 TLE",
          "获取国际空间站（ISS，NORAD 25544）的最新TLE轨道根数，列出六根数"),
-        ("🔍 大型碎片统计",
+        ("大型碎片统计",
          "统计LEO（200~2000km）中LARGE级别的碎片数量，列出近地点最低的前10个"),
     ]
     for i, (label, question) in enumerate(_examples):
@@ -841,7 +919,7 @@ RCS 分级：
 
     # 清除按钮
     if st.session_state.chat_history:
-        if st.button("🗑️ 清除对话历史"):
+        if st.button("清除对话历史"):
             st.session_state.chat_history = []
             st.rerun()
 
@@ -867,8 +945,8 @@ RCS 分级：
 # ------------------------------------------------------------------
 # 页面：轨迹仿真（6-DOF）
 # ------------------------------------------------------------------
-elif page == "🚀 轨迹仿真":
-    st.title("🚀 火箭轨迹仿真（6-DOF 数值积分）")
+elif page == "sim":
+    st.markdown(title_row("sim", "火箭轨迹仿真（6-DOF 数值积分）"), unsafe_allow_html=True)
     st.caption(
         "基于 ECEF 坐标系 6 自由度 ODE（J2 引力 + 大气阻力 + 推力矢量），"
         "重力转弯俯仰程序，蒙特卡洛协方差估计。"
@@ -889,7 +967,7 @@ elif page == "🚀 轨迹仿真":
         dt_out  = col7.number_input("输出步长（s）", value=10, step=5)
         run_mc  = col8.checkbox("运行蒙特卡洛协方差（~50次）", value=True)
         mc_runs = col9.number_input("MC 次数", value=30, step=10, disabled=not run_mc)
-        submitted = st.form_submit_button("▶ 运行仿真", type="primary")
+        submitted = st.form_submit_button("运行仿真", type="primary")
 
     if submitted:
         from datetime import timezone as _tz
@@ -1001,8 +1079,8 @@ elif page == "🚀 轨迹仿真":
 # ------------------------------------------------------------------
 # 页面：OEM 管理
 # ------------------------------------------------------------------
-elif page == "📄 OEM 管理":
-    st.title("📄 CCSDS OEM 轨道星历管理")
+elif page == "oem":
+    st.markdown(title_row("oem", "CCSDS OEM 轨道星历管理"), unsafe_allow_html=True)
     st.caption(
         "符合 CCSDS 502.0-B-3 的 ASCII/KVN 格式。包含位置+速度状态向量及可选协方差块。"
     )
@@ -1019,7 +1097,7 @@ elif page == "📄 OEM 管理":
             mission_id = st.text_input("任务编号", "2026-001")
             oem_path   = st.text_input("输出文件路径", "/tmp/mission.oem")
 
-            if st.button("📥 生成 OEM 文件"):
+            if st.button("生成 OEM 文件"):
                 try:
                     from trajectory.oem_io import sim_result_to_oem_segments, write_oem
                     segs = sim_result_to_oem_segments(result, phases, mission_id=mission_id)
@@ -1036,7 +1114,7 @@ elif page == "📄 OEM 管理":
     with tab_view:
         st.subheader("解析现有 OEM 文件")
         oem_input_path = st.text_input("OEM 文件路径", "/tmp/mission.oem", key="oem_view_path")
-        if st.button("📂 解析"):
+        if st.button("解析 OEM 文件"):
             try:
                 from trajectory.oem_io import read_oem
                 import pandas as pd
@@ -1061,8 +1139,8 @@ elif page == "📄 OEM 管理":
 # ------------------------------------------------------------------
 # 页面：LCOLA 飞越筛选
 # ------------------------------------------------------------------
-elif page == "⚠️ LCOLA 飞越筛选":
-    st.title("⚠️ 发射碰撞规避（LCOLA）飞越窗口扫描")
+elif page == "lcola":
+    st.markdown(title_row("lcola", "发射碰撞规避（LCOLA）飞越窗口扫描"), unsafe_allow_html=True)
 
     # ── 功能说明卡片 ────────────────────────────────────────────────────────
     st.info(
@@ -1070,14 +1148,14 @@ elif page == "⚠️ LCOLA 飞越筛选":
         "通过扫描多个候选发射时刻（每隔 step 秒取一个），对每个时刻运行完整的 "
         "PostGIS 空间预筛 → SGP4 传播 → TCA 求解 → Foster Pc 数值积分流程，"
         "最终输出 **禁射窗口（Blackout）** 和 **安全窗口（Safe）**，帮助任务规划员选择最优发射时刻。\n\n"
-        "📌 **与「☄️ 碰撞风险」的区别**：碰撞风险页面针对 *单一固定发射时刻*，"
+        "**与「碰撞风险」的区别：** 碰撞风险页面针对 *单一固定发射时刻*，"
         "逐飞行阶段给出 Pc 和风险等级（回答『这个时刻安不安全』）；"
         "本页面针对 *一段时间窗口内的多个候选时刻*，找出哪些时刻触发禁射条件"
         "（回答『窗口内什么时候可以发射』）。两者互补，不可替代。"
     )
 
     # ── 配置面板 ────────────────────────────────────────────────────────────
-    with st.expander("⚙️ 筛选配置", expanded=True):
+    with st.expander("筛选配置", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
         crewed = col1.checkbox("载人任务（Pc 门限 1e-6）", value=False)
         hbr    = col2.number_input("联合硬体半径 HBR (m)", value=20, step=5) / 1000.0
@@ -1089,7 +1167,7 @@ elif page == "⚠️ LCOLA 飞越筛选":
     # ── 耗时估算 ────────────────────────────────────────────────────────────
     n_steps_est = int(win_m * 2 * 60 / max(step_s, 1)) + 1
     st.caption(
-        f"⏱ 本次将评估 **{n_steps_est} 个**候选发射时刻。"
+        f"本次将评估 **{n_steps_est} 个**候选发射时刻。"
         f"  预计耗时：碎片数据库为空时约 **{max(1, n_steps_est//30)}-{max(2, n_steps_est//10)} 秒**；"
         f"碎片数据库已填充时约 **{max(1, n_steps_est//4)}-{max(2, n_steps_est)} 秒**。"
         f"  计算在后台进行，可切换到其他页面，完成后右上角弹窗通知。",
@@ -1112,7 +1190,7 @@ elif page == "⚠️ LCOLA 飞越筛选":
     # ── 发射按钮 ────────────────────────────────────────────────────────────
     col_btn, col_stop = st.columns([2, 1])
     run_clicked  = col_btn.button(
-        "▶ 开始飞越筛选（后台运行）", type="primary",
+        "开始飞越筛选（后台运行）", type="primary",
         disabled=bool(st.session_state.get("_lcola_running")),
     )
     stop_clicked = col_stop.button(
@@ -1197,18 +1275,14 @@ elif page == "⚠️ LCOLA 飞越筛选":
                     st.session_state["_lcola_n_blackouts"] = len(_rpt.blackout_windows)
                     st.session_state["_lcola_n_events"]    = len(_rpt.top_events)
                     st.toast(
-                        f"🛸 LCOLA 飞越筛选完成！  {len(_rpt.blackout_windows)} 个禁发窗口 · "
+                        f"LCOLA 飞越筛选完成：{len(_rpt.blackout_windows)} 个禁发窗口 · "
                         f"{len(_rpt.top_events)} 条合取事件",
-                        icon="✅",
                     )
                 st.rerun()
                 return
 
-            # ── still running: skip if nothing changed ────────────────────
-            _last = st.session_state.get("_lcola_last_step", -1)
+            # 每次进入页面都重绘进度条（离开再回来时 step 可能未变，不能跳过渲染）
             step, total = ps.step, (ps.total or n_steps_est)
-            if step == _last and step > 0:
-                return
             st.session_state["_lcola_last_step"] = step
 
             pct = min(step / max(total, 1), 0.99)
@@ -1216,16 +1290,16 @@ elif page == "⚠️ LCOLA 飞越筛选":
             eta_s = f"  预计剩余 {elapsed / step * (total - step):.0f}s" if step > 0 else ""
             st.progress(
                 pct,
-                text=f"飞越筛选中… {step}/{total} 个发射时刻  ⏱ {elapsed:.0f}s{eta_s}",
+                text=f"飞越筛选中… {step}/{total} 个发射时刻 · 已用 {elapsed:.0f}s{eta_s}",
             )
             st.info(
-                f"⏳ 正在后台计算（{step}/{total}），您可以切换到其他页面，完成后将在右上角弹窗通知。"
+                f"正在后台计算（{step}/{total}），可切换到其他页面，完成后右上角将弹窗通知。"
             )
 
         _lcola_progress_fragment()
 
     # ── 错误提示 ────────────────────────────────────────────────────────────
-    if "lcola_error" in st.session_state:
+    if st.session_state.get("_lcola_error"):
         st.error(f"筛选失败：{st.session_state.pop('_lcola_error', '')}")
 
     # ── 结果展示 ────────────────────────────────────────────────────────────
@@ -1236,7 +1310,7 @@ elif page == "⚠️ LCOLA 飞越筛选":
 
         # 成功通知
         st.success(
-            f"✅ 筛选完成！评估了 {len(report.results)} 个发射时刻，"
+            f"筛选完成：已评估 {len(report.results)} 个发射时刻，"
             f"发现 {len(report.blackout_windows)} 个禁发窗口，"
             f"共 {len(report.top_events)} 条合取事件"
         )
@@ -1255,7 +1329,7 @@ elif page == "⚠️ LCOLA 飞越筛选":
         # 禁发/安全窗口
         col_bo, col_sa = st.columns(2)
         with col_bo:
-            st.subheader("🔴 禁射窗口（Blackout Windows）")
+            st.markdown(section_title("ban", "禁射窗口（Blackout Windows）"), unsafe_allow_html=True)
             bows = report.blackout_windows
             if bows:
                 df_bo = pd.DataFrame([
@@ -1269,7 +1343,7 @@ elif page == "⚠️ LCOLA 飞越筛选":
                 st.success("窗口内无禁射时段，全时段可发射")
 
         with col_sa:
-            st.subheader("🟢 安全发射窗口（Safe Windows）")
+            st.markdown(section_title("check", "安全发射窗口（Safe Windows）"), unsafe_allow_html=True)
             safe = report.safe_windows
             if safe:
                 df_sa = pd.DataFrame([
@@ -1283,12 +1357,11 @@ elif page == "⚠️ LCOLA 飞越筛选":
                 st.warning("窗口内无完整安全时段")
 
         # 高风险合取事件
-        st.subheader("🔍 高风险合取事件（Top 50，按 Pc 降序）")
+        st.markdown(section_title("magnifier", "高风险合取事件（Top 50，按 Pc 降序）"), unsafe_allow_html=True)
         if report.top_events:
-            risk_color = {"RED": "🔴", "AMBER": "🟠", "YELLOW": "🟡", "GREEN": "🟢"}
             rows = [{
-                "风险": risk_color.get(ev.risk_level, ""),
-                "NORAD ID":       ev.norad_cat_id,
+                "风险等级":       ev.risk_level,
+                "NORAD ID":       _norad_display(ev.norad_cat_id),
                 "目标名称":       ev.object_name,
                 "飞行阶段":       ev.phase,
                 "TCA (UTC)":      ev.tca.strftime("%m-%d %H:%M:%S"),

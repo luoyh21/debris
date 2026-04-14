@@ -1,0 +1,14 @@
+# Release / 生产：减少文件监听与开发向开销，加快启动与运行
+[server]
+runOnSave = false
+fileWatcherType = "none"
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = false
+
+[runner]
+fastReruns = true

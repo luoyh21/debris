@@ -205,11 +205,14 @@ def cmd_lcola(args):
 
 def cmd_app(args):
     app_path = os.path.join(os.path.dirname(__file__), "streamlit_app", "app.py")
+    # Release 行为主要由 .streamlit/config.toml 与 STREAMLIT_* 环境变量控制；
+    # 此处仅压低日志级别，避免无效 CLI 选项在不同版本上报错。
     subprocess.run(
         [sys.executable, "-m", "streamlit", "run", app_path,
          "--server.port", str(args.port),
          "--server.address", "0.0.0.0",
-         "--server.headless", "true"],
+         "--server.headless", "true",
+         "--logger.level", "warning"],
         check=True,
     )
 
