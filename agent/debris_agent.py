@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import List, Dict, Any
 
 from openai import APIConnectionError, APITimeoutError, APIStatusError, OpenAI
@@ -286,14 +287,18 @@ def _query_debris_count(
     perigee_km / apogee_km columns.
     """
     conditions: list[str] = []
+    params: dict[str, Any] = {}
     if alt_min_km is not None:
-        conditions.append(f"co.perigee_km >= {float(alt_min_km)}")
+        conditions.append("co.perigee_km >= :alt_min_km")
+        params["alt_min_km"] = float(alt_min_km)
     if alt_max_km is not None:
-        conditions.append(f"co.apogee_km  <= {float(alt_max_km)}")
+        conditions.append("co.apogee_km <= :alt_max_km")
+        params["alt_max_km"] = float(alt_max_km)
     if object_type.lower() not in ("all", ""):
         # Sanitise: strip quotes, upper-case, compare exactly
         ot = object_type.upper().replace("'", "")
-        conditions.append(f"co.object_type = '{ot}'")
+        conditions.append("co.object_type = :object_type")
+        params["object_type"] = ot
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -301,13 +306,13 @@ def _query_debris_count(
         with session_scope() as sess:
             cnt = sess.execute(text(
                 f"SELECT COUNT(*) FROM catalog_objects co {where}"
-            )).scalar() or 0
+            ), params).scalar() or 0
 
             # PostgreSQL: LIMIT inside array_agg is invalid; use subquery
             sample_rows = sess.execute(text(
                 f"SELECT name FROM catalog_objects co {where} "
                 f"ORDER BY norad_cat_id LIMIT 5"
-            )).fetchall()
+            ), params).fetchall()
 
         return {
             "count":   int(cnt),
@@ -347,12 +352,61 @@ def _query_catalog_stats() -> dict:
     return {"total_objects": total, "by_type": stats}
 
 
+_DANGEROUS_SQL_RE = re.compile(
+    r"\b("
+    r"INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT|REVOKE|"
+    r"COMMENT|VACUUM|ANALYZE|COPY|CALL|DO|SET|RESET|SHOW|BEGIN|START|"
+    r"COMMIT|ROLLBACK|MERGE|EXECUTE|PREPARE|DEALLOCATE|LOCK|REINDEX|"
+    r"CLUSTER|REFRESH|NOTIFY|LISTEN|UNLISTEN"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_sql_comments(sql: str) -> str:
+    """Remove SQL comments to avoid keyword obfuscation."""
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
+    sql = re.sub(r"--[^\n\r]*", " ", sql)
+    return sql
+
+
+def _validate_readonly_sql(sql: str) -> str | None:
+    """
+    Return error message if SQL is unsafe/non-readonly; otherwise None.
+
+    Security policy:
+    - Only single-statement SELECT / WITH query is allowed.
+    - Reject all known write/DDL/transaction/session-control keywords.
+    """
+    cleaned = _strip_sql_comments(sql).strip()
+    if not cleaned:
+        return "SQL 不能为空"
+
+    # Disallow multi-statements and block trailing injected command chains.
+    if ";" in cleaned.rstrip(";"):
+        return "只允许单条只读查询，不允许多语句"
+
+    upper = cleaned.upper()
+    if not (upper.startswith("SELECT") or upper.startswith("WITH")):
+        return "只允许 SELECT / WITH 只读查询"
+
+    m = _DANGEROUS_SQL_RE.search(cleaned)
+    if m:
+        return f"检测到禁止关键字: {m.group(1).upper()}"
+
+    return None
+
+
 def _run_sql(sql: str) -> list:
-    stripped = sql.strip().upper()
-    if not stripped.startswith("SELECT") and not stripped.startswith("WITH"):
-        return [{"error": "Only SELECT queries are allowed"}]
+    err = _validate_readonly_sql(sql)
+    if err:
+        return [{"error": err}]
+
     with session_scope() as sess:
         try:
+            # Transaction-level readonly: even if validator is bypassed,
+            # PostgreSQL will still reject write/DDL operations.
+            sess.execute(text("SET TRANSACTION READ ONLY"))
             rows = sess.execute(text(sql)).fetchmany(100)
             return [dict(r._mapping) for r in rows]
         except Exception as exc:

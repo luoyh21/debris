@@ -3,11 +3,12 @@
 
 Tab 1  全球碎片态势     pydeck GlobeView 交互球体 + 高度直方图
 Tab 2  高度分层下钻     Plotly Scatter3d 地球球面 + 5 层轨道带
-Tab 3  发射安全时滑     6-DOF 轨迹动画 + 时间轴 + 近地碎片高亮
+Tab 3  火箭发射碎片预警 6-DOF 轨迹动画 + 时间轴 + 近地碎片高亮
 """
 from __future__ import annotations
 
 import logging
+import math
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -21,6 +22,12 @@ from typing import List, Optional
 from streamlit_app.nav_icons import icon_inline, section_title, title_row
 
 log = logging.getLogger(__name__)
+
+try:
+    from sgp4.api import Satrec, WGS84, jday
+    _SGP4_OK = True
+except Exception:
+    _SGP4_OK = False
 
 # ─── Keplerian two-body propagation helpers ───────────────────────────────────
 _MU_KM3S2  = 398600.4418
@@ -133,16 +140,16 @@ SCENE_BG  = "#000814"
 R_EARTH   = 6371.0          # km
 
 ALTITUDE_LAYERS = [
-    {"id": "VLEO", "label": "VLEO  < 400 km",     "alt_min":  0,     "alt_max":  400,
-     "color": "#FF6B6B", "note": "空间站活跃区（ISS / 天宫）"},
-    {"id": "LEO1", "label": "LEO-I  400–800 km",  "alt_min":  400,   "alt_max":  800,
-     "color": "#FF9F45", "note": "Starlink / OneWeb 大型星座层"},
-    {"id": "LEO2", "label": "LEO-II 800–2000 km", "alt_min":  800,   "alt_max": 2000,
-     "color": "#FFD93D", "note": "历史碰撞碎屑最高密度区"},
-    {"id": "MEO",  "label": "MEO  2000–30000 km", "alt_min": 2000,   "alt_max": 30000,
-     "color": "#6BCB77", "note": "GPS / 北斗 / Galileo 导航星座"},
-    {"id": "GEO",  "label": "GEO   > 30000 km",   "alt_min": 30000,  "alt_max": 42500,
-     "color": "#4D96FF", "note": "通信卫星与墓地轨道"},
+    {"id": "VLEO", "label": "VLEO <400km",    "alt_min":  0,     "alt_max":  400,
+     "color": "#FF6B6B", "note": "ISS/天宫活跃区"},
+    {"id": "LEO1", "label": "LEO-I 400-800",  "alt_min":  400,   "alt_max":  800,
+     "color": "#FF9F45", "note": "星链/OneWeb星座"},
+    {"id": "LEO2", "label": "LEO-II 800-2k",  "alt_min":  800,   "alt_max": 2000,
+     "color": "#FFD93D", "note": "碎屑最高密度区"},
+    {"id": "MEO",  "label": "MEO 2k-30k",     "alt_min": 2000,   "alt_max": 30000,
+     "color": "#6BCB77", "note": "GPS/北斗/Galileo"},
+    {"id": "GEO",  "label": "GEO >30000km",   "alt_min": 30000,  "alt_max": 42500,
+     "color": "#4D96FF", "note": "通信卫星/墓地轨道"},
 ]
 
 # object_type → (hex color,  [R,G,B] for pydeck)
@@ -182,83 +189,173 @@ def lla_to_ecef(lat_deg, lon_deg, alt_km):
 
 # ─── Data loading ──────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
+def load_positions_at_time(
+    t_utc: datetime,
+    alt_min: float = 0.0,
+    alt_max: float = 2000.0,
+    obj_type: str  = "ALL",
+    limit:    int  = 15000,
+) -> pd.DataFrame:
+    """Propagate catalog objects to a target UTC epoch using latest GP/TLE."""
+    from database.db import session_scope
+    from sqlalchemy import text
+    from propagator.sgp4_propagator import StateVector
+
+    if not _SGP4_OK:
+        st.error("缺少 sgp4 依赖，无法进行时刻递推。")
+        return pd.DataFrame()
+
+    t_utc = t_utc.replace(tzinfo=timezone.utc) if t_utc.tzinfo is None else t_utc
+    obj_u = (obj_type or "ALL").upper()
+
+    sql = text("""
+        WITH latest_gp AS (
+            SELECT DISTINCT ON (norad_cat_id)
+                norad_cat_id,
+                epoch,
+                mean_motion,
+                eccentricity,
+                inclination AS gp_inclination,
+                ra_of_asc_node,
+                arg_of_pericenter,
+                mean_anomaly,
+                bstar,
+                tle_line1,
+                tle_line2
+            FROM gp_elements
+            WHERE norad_cat_id IS NOT NULL
+            ORDER BY norad_cat_id, epoch DESC
+        )
+        SELECT
+            co.norad_cat_id                                AS norad_cat_id,
+            COALESCE(co.name, '')                          AS name,
+            COALESCE(co.object_type, 'UNKNOWN')            AS object_type,
+            COALESCE(co.country_code, '?')                 AS country_code,
+            COALESCE(co.perigee_km, 0)                     AS perigee_km,
+            COALESCE(co.apogee_km,  0)                     AS apogee_km,
+            COALESCE(co.inclination, lg.gp_inclination, 0) AS inclination,
+            lg.mean_motion                                 AS mean_motion,
+            lg.eccentricity                                AS eccentricity,
+            lg.ra_of_asc_node                              AS ra_of_asc_node,
+            lg.arg_of_pericenter                           AS arg_of_pericenter,
+            lg.mean_anomaly                                AS mean_anomaly,
+            lg.bstar                                       AS bstar,
+            lg.tle_line1                                   AS tle_line1,
+            lg.tle_line2                                   AS tle_line2
+        FROM catalog_objects co
+        JOIN latest_gp lg ON lg.norad_cat_id = co.norad_cat_id
+        WHERE co.apogee_km  >= :alt_min
+          AND co.perigee_km <= :alt_max_buf
+          AND (:obj_type = 'ALL' OR UPPER(co.object_type) = :obj_type)
+        ORDER BY co.norad_cat_id
+        LIMIT :lim
+    """)
+
+    def _build_satrec(row) -> Optional["Satrec"]:
+        line1 = row.tle_line1
+        line2 = row.tle_line2
+        if line1 and line2:
+            try:
+                return Satrec.twoline2rv(str(line1), str(line2))
+            except Exception:
+                pass
+        try:
+            sat = Satrec()
+            sat.sgp4init(
+                WGS84,
+                "i",
+                int(row.norad_cat_id),
+                float(row.bstar or 0.0),
+                0.0,
+                0.0,
+                float(row.eccentricity),
+                math.radians(float(row.arg_of_pericenter)),
+                math.radians(float(row.gp_inclination if hasattr(row, "gp_inclination") else row.inclination)),
+                math.radians(float(row.mean_anomaly)),
+                float(row.mean_motion) * 2 * math.pi / 1440.0,
+                math.radians(float(row.ra_of_asc_node)),
+            )
+            return sat
+        except Exception:
+            return None
+
+    try:
+        with session_scope() as sess:
+            rows = sess.execute(sql, {
+                "alt_min":     alt_min,
+                "alt_max_buf": alt_max + 500,
+                "obj_type":    obj_u,
+                "lim":         limit,
+            }).fetchall()
+
+        jd, fr = jday(
+            t_utc.year, t_utc.month, t_utc.day,
+            t_utc.hour, t_utc.minute, t_utc.second + t_utc.microsecond / 1e6
+        )
+        out = []
+        for row in rows:
+            sat = _build_satrec(row)
+            if sat is None:
+                continue
+            e, r, v = sat.sgp4(jd, fr)
+            if e != 0:
+                continue
+            sv = StateVector(
+                epoch=t_utc, x=float(r[0]), y=float(r[1]), z=float(r[2]),
+                vx=float(v[0]), vy=float(v[1]), vz=float(v[2]),
+            )
+            lat, lon, alt = sv.to_geodetic()
+            if not np.isfinite(alt) or alt < alt_min or alt > alt_max:
+                continue
+            out.append({
+                "norad_cat_id": int(row.norad_cat_id),
+                "name": row.name,
+                "object_type": row.object_type,
+                "country_code": row.country_code,
+                "perigee_km": float(row.perigee_km or 0.0),
+                "apogee_km": float(row.apogee_km or 0.0),
+                "inclination": float(row.inclination or 0.0),
+                "lon": float(lon),
+                "lat": float(lat),
+                "alt_km": float(max(0.0, alt)),
+            })
+
+        df = pd.DataFrame(out)
+        return df
+    except Exception as exc:
+        st.error(f"SGP4 递推位置查询错误：{exc}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
 def load_positions_now(
     alt_min: float = 0.0,
     alt_max: float = 2000.0,
     obj_type: str  = "ALL",
     limit:    int  = 15000,
 ) -> pd.DataFrame:
-    """
-    Query trajectory_segments midpoint (lon, lat, alt_km) for all objects
-    whose segment overlaps the current UTC time.
-    """
-    from database.db import session_scope
-    from sqlalchemy import text
-
-    type_sql = (
-        ""
-        if obj_type == "ALL"
-        else f" AND UPPER(co.object_type) = '{obj_type.upper()}'"
+    """Backward-compatible wrapper: positions at current UTC."""
+    return load_positions_at_time(
+        t_utc=datetime.now(timezone.utc),
+        alt_min=alt_min, alt_max=alt_max, obj_type=obj_type, limit=limit,
     )
-    sql = text(f"""
-        SELECT DISTINCT ON (co.norad_cat_id)
-            co.norad_cat_id                                                     AS norad_cat_id,
-            co.name                                                             AS name,
-            COALESCE(co.object_type, 'UNKNOWN')                                AS object_type,
-            COALESCE(co.country_code, '?')                                     AS country_code,
-            COALESCE(co.perigee_km, 0)                                         AS perigee_km,
-            COALESCE(co.apogee_km,  0)                                         AS apogee_km,
-            COALESCE(ge.inclination, 0)                                        AS inclination,
-            ST_X(ST_LineInterpolatePoint(ts.geom_geo::geometry, 0.5))          AS lon,
-            ST_Y(ST_LineInterpolatePoint(ts.geom_geo::geometry, 0.5))          AS lat,
-            ST_Z(ST_LineInterpolatePoint(ts.geom_geo::geometry, 0.5))          AS alt_km
-        FROM trajectory_segments ts
-        JOIN  catalog_objects co ON co.norad_cat_id = ts.norad_cat_id
-        LEFT JOIN gp_elements ge  ON ge.norad_cat_id = co.norad_cat_id
-        WHERE ts.t_start  <= NOW()
-          AND ts.t_end    >= NOW()
-          AND ts.geom_geo IS NOT NULL
-          AND co.perigee_km >= :alt_min
-          AND co.apogee_km  <= :alt_max_buf
-          {type_sql}
-        ORDER BY co.norad_cat_id, ts.t_start DESC
-        LIMIT :lim
-    """)
-    try:
-        from database.db import session_scope
-        with session_scope() as sess:
-            rows = sess.execute(sql, {
-                "alt_min":     alt_min,
-                "alt_max_buf": alt_max + 500,
-                "lim":         limit,
-            }).fetchall()
-        df = pd.DataFrame(rows, columns=[
-            "norad_cat_id", "name", "object_type", "country_code",
-            "perigee_km", "apogee_km", "inclination",
-            "lon", "lat", "alt_km",
-        ])
-        df.dropna(subset=["lat", "lon", "alt_km"], inplace=True)
-        df["alt_km"] = df["alt_km"].clip(lower=0)
-        return df
-    except Exception as exc:
-        st.error(f"位置查询错误：{exc}")
-        return pd.DataFrame()
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def load_layer_stats() -> pd.DataFrame:
-    """Count catalog_objects per altitude layer."""
-    from database.db import session_scope
-    from sqlalchemy import text
+    """Count objects per layer using propagated current-time positions."""
+    now_utc = datetime.now(timezone.utc)
     rows = []
     try:
-        with session_scope() as sess:
-            for layer in ALTITUDE_LAYERS:
-                r = sess.execute(text("""
-                    SELECT COUNT(*) FROM catalog_objects
-                    WHERE perigee_km >= :lo AND perigee_km < :hi
-                """), {"lo": layer["alt_min"], "hi": layer["alt_max"]}).fetchone()
-                rows.append({**layer, "count": int(r[0]) if r else 0})
+        for layer in ALTITUDE_LAYERS:
+            dfl = load_positions_at_time(
+                t_utc=now_utc,
+                alt_min=float(layer["alt_min"]),
+                alt_max=float(layer["alt_max"]),
+                obj_type="ALL",
+                limit=60000,
+            )
+            rows.append({**layer, "count": int(len(dfl))})
     except Exception:
         rows = [{**l, "count": 0} for l in ALTITUDE_LAYERS]
     return pd.DataFrame(rows)
@@ -271,48 +368,30 @@ def load_debris_near_point(
     radius_km: float = 500.0,
     limit: int = 400,
 ) -> pd.DataFrame:
-    """Spatial + temporal query for objects near (lat, lon) at time t_utc."""
-    from database.db import session_scope
-    from sqlalchemy import text
-    sql = text("""
-        SELECT DISTINCT ON (co.norad_cat_id)
-            co.norad_cat_id,
-            co.name,
-            co.object_type,
-            ST_X(ST_LineInterpolatePoint(ts.geom_geo::geometry, 0.5))   AS lon,
-            ST_Y(ST_LineInterpolatePoint(ts.geom_geo::geometry, 0.5))   AS lat,
-            ST_Z(ST_LineInterpolatePoint(ts.geom_geo::geometry, 0.5))   AS alt_km,
-            ROUND(CAST(
-                ST_Distance(
-                    ST_MakePoint(:lon, :lat)::geography,
-                    ST_Centroid(ts.geom_geo)::geography
-                ) / 1000.0 AS numeric), 1
-            ) AS dist_km
-        FROM trajectory_segments ts
-        JOIN catalog_objects co ON co.norad_cat_id = ts.norad_cat_id
-        WHERE ts.t_start  <= :t
-          AND ts.t_end    >= :t
-          AND ts.geom_geo IS NOT NULL
-          AND ts.geom_geo && ST_Expand(
-                ST_MakePoint(:lon, :lat)::geography::geometry, :deg_r)
-        ORDER BY co.norad_cat_id, dist_km
-        LIMIT :lim
-    """)
+    """Propagate nearby debris at t_utc and return nearest objects."""
     try:
-        with session_scope() as sess:
-            rows = sess.execute(sql, {
-                "lat": lat, "lon": lon,
-                "deg_r": radius_km / 111.0,
-                "t":    t_utc,
-                "lim":  limit,
-            }).fetchall()
-        df = pd.DataFrame(rows, columns=[
-            "norad_cat_id", "name", "object_type", "lon", "lat", "alt_km", "dist_km"
-        ])
-        df.dropna(subset=["lat", "lon", "alt_km"], inplace=True)
-        df["dist_km"] = df["dist_km"].astype(float)
-        df = df[df["dist_km"] <= radius_km].sort_values("dist_km")
-        return df
+        alt_min = max(0.0, float(alt_km) - float(radius_km) - 400.0)
+        alt_max = min(120000.0, float(alt_km) + float(radius_km) + 400.0)
+        candidate_cap = int(max(4000, min(15000, limit * 25)))
+
+        cands = load_positions_at_time(
+            t_utc=t_utc,
+            alt_min=alt_min,
+            alt_max=alt_max,
+            obj_type="ALL",
+            limit=candidate_cap,
+        )
+        if cands.empty:
+            return pd.DataFrame()
+
+        rx, ry, rz = lla_to_ecef(lat, lon, alt_km)
+        dx, dy, dz = lla_to_ecef(cands["lat"].values, cands["lon"].values, cands["alt_km"].values)
+        dist = np.sqrt((dx - rx) ** 2 + (dy - ry) ** 2 + (dz - rz) ** 2)
+        cands = cands.copy()
+        cands["dist_km"] = dist
+        cands = cands[cands["dist_km"] <= float(radius_km)]
+        cands = cands.sort_values("dist_km").head(limit)
+        return cands[["norad_cat_id", "name", "object_type", "lon", "lat", "alt_km", "dist_km"]]
     except Exception:
         return pd.DataFrame()
 
@@ -329,7 +408,7 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def _apply_3d_layout(fig: go.Figure, height: int = 620, title: str = ""):
+def _apply_3d_layout(fig: go.Figure, height: int = 680, title: str = ""):
     ax = dict(showticklabels=False, showgrid=False, zeroline=False,
               showline=False, showspikes=False, backgroundcolor=SCENE_BG,
               gridcolor="rgba(0,0,0,0)", title="")
@@ -351,7 +430,7 @@ def _apply_3d_layout(fig: go.Figure, height: int = 620, title: str = ""):
     )
 
 
-def _add_earth(fig: go.Figure, n: int = 80, opacity: float = 0.90):
+def _add_earth(fig: go.Figure, n: int = 110, opacity: float = 0.92):
     """Add Earth sphere + thin atmosphere layer to a 3D figure."""
     x_e, y_e, z_e = _earth_mesh(n)
     # Lighting direction from the Sun (top-right)
@@ -420,11 +499,11 @@ def _add_earth_local(fig: go.Figure, rx: float, ry: float, rz: float, n: int = 5
     ))
 
 
-def _add_altitude_shell(fig: go.Figure, alt_km: float, color: str, opacity: float = 0.07):
+def _add_altitude_shell(fig: go.Figure, alt_km: float, color: str, opacity: float = 0.08):
     """Add a semi-transparent spherical shell at a given altitude."""
     r = R_EARTH + alt_km
-    u = np.linspace(0, 2 * np.pi, 60)
-    v = np.linspace(0, np.pi,     30)
+    u = np.linspace(0, 2 * np.pi, 90)
+    v = np.linspace(0, np.pi,     45)
     x = r * np.outer(np.cos(u), np.sin(v))
     y = r * np.outer(np.sin(u), np.sin(v))
     z = r * np.outer(np.ones(60), np.cos(v))
@@ -478,38 +557,246 @@ def make_globe_ortho(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def make_altitude_hist(df: pd.DataFrame) -> go.Figure:
-    """Stacked altitude histogram by object type."""
+# ─── Orbit propagation trace ───────────────────────────────────────────────────
+_TRACE_COLORS = [
+    "#FF6B6B", "#00CCFF", "#FFEE00", "#6BCB77", "#4D96FF",
+    "#FF9F45", "#C77DFF", "#FF87CA", "#A8E6CF", "#FFC93C",
+]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def propagate_orbit_traces(norad_ids: tuple, n_orbits: float = 1.5) -> dict:
+    """SGP4-propagate N orbits for each NORAD ID; return {nid: {name, object_type, lat, lon, alt_km}}."""
+    if not norad_ids or not _SGP4_OK:
+        return {}
+    from database.db import session_scope as _scope
+    from sqlalchemy import text as _text
+    from propagator.sgp4_propagator import StateVector as _SV
+
+    try:
+        with _scope() as sess:
+            rows = sess.execute(_text("""
+                SELECT DISTINCT ON (g.norad_cat_id)
+                    g.norad_cat_id, g.tle_line1, g.tle_line2, g.mean_motion,
+                    co.name, co.object_type
+                FROM gp_elements g
+                JOIN catalog_objects co ON co.norad_cat_id = g.norad_cat_id
+                WHERE g.norad_cat_id = ANY(:ids)
+                ORDER BY g.norad_cat_id, g.epoch DESC
+            """), {"ids": list(norad_ids)}).fetchall()
+    except Exception:
+        return {}
+
+    t0 = datetime.now(timezone.utc)
+    result: dict = {}
+    for row in rows:
+        try:
+            sat = Satrec.twoline2rv(str(row.tle_line1), str(row.tle_line2))
+        except Exception:
+            continue
+        period_min = 1440.0 / max(float(row.mean_motion), 0.01)
+        total_min  = period_min * n_orbits
+        n_pts      = max(80, min(600, int(total_min / max(0.2, period_min / 200.0))))
+        step_min   = total_min / n_pts
+
+        lats: list = []
+        lons: list = []
+        alts: list = []
+        eci_r: list = []   # [x, y, z] km  (TEME ≈ J2000)
+        eci_v: list = []   # [vx, vy, vz] km/s
+        epochs: list = []
+        for i in range(n_pts + 1):
+            t   = t0 + timedelta(minutes=i * step_min)
+            jd2, fr2 = jday(t.year, t.month, t.day,
+                            t.hour, t.minute, t.second + t.microsecond / 1e6)
+            e, r, v = sat.sgp4(jd2, fr2)
+            if e != 0:
+                continue
+            sv = _SV(epoch=t, x=float(r[0]), y=float(r[1]), z=float(r[2]),
+                     vx=float(v[0]), vy=float(v[1]), vz=float(v[2]))
+            lat2, lon2, alt2 = sv.to_geodetic()
+            if not np.isfinite(alt2):
+                continue
+            lats.append(float(lat2))
+            lons.append(float(lon2))
+            alts.append(float(alt2))
+            eci_r.append([float(r[0]), float(r[1]), float(r[2])])
+            eci_v.append([float(v[0]), float(v[1]), float(v[2])])
+            epochs.append(t)
+
+        if lats:
+            result[int(row.norad_cat_id)] = {
+                "name": str(row.name or f"NORAD {row.norad_cat_id}"),
+                "object_type": str(row.object_type or "UNKNOWN"),
+                "lat": lats, "lon": lons, "alt_km": alts,
+                "eci_r": eci_r, "eci_v": eci_v, "epochs": epochs,
+            }
+    return result
+
+
+def make_orbit_trace_fig(traces: dict) -> go.Figure:
+    """3D Earth + time-ordered gradient line traces for each propagated orbit.
+
+    Each orbit line uses a numeric colour array + per-object colorscale so
+    the trajectory fades from dim-grey (start) to the object's full colour
+    (end), giving an unambiguous time-progression cue without arrows.
+    A white hollow circle marks the current epoch (start), a filled circle
+    marks the propagation end-point.
+    """
+    fig = go.Figure()
+    _add_earth(fig, n=100)
+
+    max_alt = 500.0
+    for i, (nid, info) in enumerate(traces.items()):
+        lats = np.array(info["lat"])
+        lons = np.array(info["lon"])
+        alts = np.array(info["alt_km"])
+        max_alt = max(max_alt, float(alts.max()))
+        x, y, z = lla_to_ecef(lats, lons, alts)
+        n      = len(x)
+        color  = _TRACE_COLORS[i % len(_TRACE_COLORS)]
+        name   = info["name"][:22]
+        otype  = info.get("object_type", "?")
+
+        # Numeric time index 0…n-1 drives the gradient
+        t_idx  = list(range(n))
+        fig.add_trace(go.Scatter3d(
+            x=list(x), y=list(y), z=list(z),
+            mode="lines",
+            line=dict(
+                color=t_idx,
+                # dim grey at t=0, object colour at t=max
+                colorscale=[[0.0, "rgba(90,90,90,0.35)"], [1.0, color]],
+                cmin=0, cmax=n - 1,
+                width=2.5,
+            ),
+            name=name,
+            legendgroup=str(nid),
+            hovertemplate=(
+                f"<b>{name}</b><br>"
+                f"NORAD {nid}  |  {_TYPE_CN.get(otype, otype)}<br>"
+                "高度: %{text} km<extra></extra>"
+            ),
+            text=[f"{a:.0f}" for a in alts],
+        ))
+
+        # ── Start marker (hollow white circle = "now") ───────────────────────
+        fig.add_trace(go.Scatter3d(
+            x=[float(x[0])], y=[float(y[0])], z=[float(z[0])],
+            mode="markers",
+            marker=dict(size=5, color="white", symbol="circle-open",
+                        line=dict(color=color, width=1.5)),
+            name=f"起始 · {name[:14]}",
+            legendgroup=str(nid),
+            showlegend=False,
+            hovertemplate=f"起始  {name}<br>高度 {alts[0]:.0f} km<extra></extra>",
+        ))
+        # ── End marker (filled object colour = future) ────────────────────────
+        fig.add_trace(go.Scatter3d(
+            x=[float(x[-1])], y=[float(y[-1])], z=[float(z[-1])],
+            mode="markers",
+            marker=dict(size=4, color=color, symbol="circle"),
+            name=f"终点 · {name[:14]}",
+            legendgroup=str(nid),
+            showlegend=False,
+            hovertemplate=f"终点  {name}<br>高度 {alts[-1]:.0f} km<extra></extra>",
+        ))
+
+    scene_r = R_EARTH + max_alt * 1.25 + 200
+    earth_ax = dict(range=[-scene_r, scene_r])
+    _apply_3d_layout(fig, height=720)
+    fig.update_layout(
+        scene=dict(
+            xaxis=earth_ax, yaxis=earth_ax, zaxis=earth_ax,
+            aspectmode="manual", aspectratio=dict(x=1, y=1, z=1),
+        ),
+        legend=dict(
+            x=0.01, y=0.99, font=dict(color="white", size=10),
+            bgcolor="rgba(0,0,0,0.45)", bordercolor="rgba(255,255,255,0.15)",
+            borderwidth=1, tracegroupgap=2,
+        ),
+    )
+    return fig
+
+
+def make_altitude_hist(
+    df: pd.DataFrame,
+    *,
+    x_max: float,
+    title: str,
+    log_x: bool = False,
+    bin_size: float = 40.0,
+) -> go.Figure:
+    """Stacked altitude histogram by object type with optional log-space binning."""
+    import numpy as _np
     fig = go.Figure()
     if df.empty:
         return fig
+
     for otype, color in _TYPE_HEX.items():
         sub = df[df["object_type"] == otype]
         if sub.empty:
             continue
+        if log_x:
+            # Bin in log space so MEO/GEO appear as real-width bars, not invisible slivers
+            vals = _np.log10(_np.maximum(sub["alt_km"].values, 1.0))
+            data_log_min = float(_np.log10(max(1.0, df["alt_km"].clip(lower=1).min())))
+            data_log_max = float(_np.log10(x_max))
+            nbins = 50
+            bsize = (data_log_max - data_log_min) / nbins
+            xbins_d = dict(start=data_log_min, end=data_log_max, size=bsize)
+        else:
+            vals = sub["alt_km"].values
+            xbins_d = dict(start=0, end=max(1.0, x_max), size=bin_size)
         fig.add_trace(go.Histogram(
-            x=sub["alt_km"],
+            x=vals,
             name=_TYPE_CN.get(otype, otype),
             marker_color=color,
-            opacity=0.80,
-            xbins=dict(start=0, end=2100, size=40),
+            opacity=0.88,
+            xbins=xbins_d,
         ))
+
     fig.update_layout(
         barmode="stack",
-        xaxis_title="轨道高度 (km)",
         yaxis_title="目标数",
-        paper_bgcolor=DARK_BG,
-        plot_bgcolor=SCENE_BG,
-        font_color="#aaaaaa",
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        font_color="#334155",
+        title=dict(text=""),      # empty string avoids "undefined" JS artefact
         legend=dict(
-            orientation="h", y=1.05, x=1, xanchor="right",
-            font=dict(color="#aaaaaa"),
+            orientation="h",
+            x=0.5, y=1.0,
+            xanchor="center", yanchor="bottom",
+            font=dict(color="#334155", size=11),
+            tracegroupgap=0,
         ),
-        margin=dict(l=45, r=10, t=5, b=40),
-        height=195,
+        margin=dict(l=44, r=10, t=44, b=40),
+        height=276,
     )
-    fig.update_xaxes(gridcolor="#1a2535", color="#aaaaaa")
-    fig.update_yaxes(gridcolor="#1a2535", color="#aaaaaa")
+
+    if log_x:
+        data_log_min = float(_np.log10(max(1.0, df["alt_km"].clip(lower=1).min())))
+        data_log_max = float(_np.log10(x_max))
+        tick_km = [200, 500, 1000, 2000, 5000, 10000, 35786]
+        tick_km = [v for v in tick_km if _np.log10(v) <= data_log_max + 0.1]
+        tick_lbl = [("GEO" if v == 35786 else (f"{v//1000:.0f}k" if v >= 1000 else str(v)))
+                    for v in tick_km]
+        fig.update_xaxes(
+            tickvals=[_np.log10(v) for v in tick_km],
+            ticktext=tick_lbl,
+            title_text="轨道高度 (km)",
+            range=[data_log_min - 0.05, data_log_max + 0.05],
+            gridcolor="rgba(148,163,184,0.22)",
+            color="#475569",
+        )
+    else:
+        fig.update_xaxes(
+            title_text="轨道高度 (km)",
+            range=[0, x_max],
+            gridcolor="rgba(148,163,184,0.22)",
+            color="#475569",
+        )
+    fig.update_yaxes(gridcolor="rgba(148,163,184,0.22)", color="#475569")
     return fig
 
 
@@ -521,7 +808,7 @@ def make_3d_sphere(
 ) -> go.Figure:
     """Earth + debris scatter. If layer given, dim out-of-band points."""
     fig = go.Figure()
-    _add_earth(fig, n=80)
+    _add_earth(fig, n=110)
 
     if df.empty:
         _apply_3d_layout(fig)
@@ -533,12 +820,11 @@ def make_3d_sphere(
     base_colors = _hex_color_col(plot_df)
 
     if layer is not None:
-        # All loaded points are in-layer (query filtered by altitude range)
         colors = [_hex_to_rgba(c, 0.90) for c in base_colors]
-        sizes  = [3.2] * len(plot_df)
+        sizes  = [2.0] * len(plot_df)
     else:
-        colors = [_hex_to_rgba(c, 0.70) for c in base_colors]
-        sizes  = [2.2] * len(plot_df)
+        colors = [_hex_to_rgba(c, 0.78) for c in base_colors]
+        sizes  = [1.8] * len(plot_df)
 
     fig.add_trace(go.Scatter3d(
         x=x, y=y, z=z,
@@ -554,17 +840,14 @@ def make_3d_sphere(
         name="",
     ))
 
-    # Altitude band shells (only for LEO-range layers to avoid huge geometry)
-    if layer is not None and layer["alt_max"] <= 2500:
-        _add_altitude_shell(fig, layer["alt_min"], layer["color"], opacity=0.06)
-        _add_altitude_shell(fig, layer["alt_max"], layer["color"], opacity=0.10)
+    # Remove altitude-shell edge highlights for cleaner visual.
 
     # Explicit Earth-centric scene range — prevents camera drift when
     # max_pts > actual point count (Plotly falls back to data bbox which may
     # be very different from Earth scale when few/no points are present)
     scene_r = R_EARTH + (layer["alt_max"] + 500 if layer else 2500)
     earth_ax = dict(range=[-scene_r, scene_r])
-    _apply_3d_layout(fig, height=600)
+    _apply_3d_layout(fig, height=680)
     fig.update_layout(scene=dict(
         xaxis=earth_ax, yaxis=earth_ax, zaxis=earth_ax,
         aspectmode="manual",
@@ -579,6 +862,7 @@ def make_mission_fig(
     t_slider_s:  float,
     nearby_df:   pd.DataFrame,
     risk_events: list,
+    rocket_state: Optional[dict] = None,
     traj_half_window: int = 40,   # show N future traj points after current idx
 ) -> go.Figure:
     """3D figure — LOCAL rocket frame + full-size Earth as backdrop.
@@ -599,10 +883,25 @@ def make_mission_fig(
     # ── Current rocket state ─────────────────────────────────────────────────
     times_arr = np.array([p.t_met_s for p in traj_points])
     idx  = int(np.searchsorted(times_arr, t_slider_s).clip(0, len(traj_points) - 1))
-    rp   = traj_points[idx]
-    rx, ry, rz = (float(v) for v in lla_to_ecef(rp.lat_deg, rp.lon_deg, rp.alt_km))
+    rp_nom = traj_points[idx]
+    if rocket_state is None:
+        rp_live = {
+            "lat_deg": float(rp_nom.lat_deg),
+            "lon_deg": float(rp_nom.lon_deg),
+            "alt_km": float(rp_nom.alt_km),
+            "vel_kms": float(np.linalg.norm(rp_nom.vel_eci)),
+        }
+    else:
+        rp_live = {
+            "lat_deg": float(rocket_state["lat_deg"]),
+            "lon_deg": float(rocket_state["lon_deg"]),
+            "alt_km": float(rocket_state["alt_km"]),
+            "vel_kms": float(rocket_state["vel_kms"]),
+        }
+
+    rx, ry, rz = (float(v) for v in lla_to_ecef(rp_live["lat_deg"], rp_live["lon_deg"], rp_live["alt_km"]))
     r_norm = float(np.sqrt(rx**2 + ry**2 + rz**2))   # distance from Earth center → rocket
-    vel_kms = float(np.linalg.norm(rp.vel_eci))
+    vel_kms = rp_live["vel_kms"]
 
     # ── Scene range: large enough to fit full Earth sphere ───────────────────
     # r_norm ≈ R_EARTH + alt_km.  Adding 20% margin ensures sphere fits fully.
@@ -655,8 +954,8 @@ def make_mission_fig(
         textposition="top center",
         hovertemplate=(
             f"LV · T+{t_slider_s:.0f}s<br>"
-            f"Alt: {rp.alt_km:.1f} km<br>"
-            f"Lat: {rp.lat_deg:.2f}°  Lon: {rp.lon_deg:.2f}°<br>"
+            f"Alt: {rp_live['alt_km']:.1f} km<br>"
+            f"Lat: {rp_live['lat_deg']:.2f}°  Lon: {rp_live['lon_deg']:.2f}°<br>"
             f"V: {vel_kms:.3f} km/s"
             "<extra></extra>"
         ),
@@ -676,10 +975,10 @@ def make_mission_fig(
             d_colors = [
                 "#FF2222" if d < 20  else
                 "#FF8800" if d < 100 else
-                "#FFDD00" if d < 300 else "#445566"
+                "#FFDD00" if d < 300 else "#6699CC"
                 for d in dist
             ]
-            d_sizes = [7 if d < 20 else 5 if d < 100 else 3 for d in dist]
+            d_sizes = [7 if d < 20 else 5 if d < 100 else 4 for d in dist]
             fig.add_trace(go.Scatter3d(
                 x=dx_l, y=dy_l, z=dz_l, mode="markers",
                 marker=dict(size=d_sizes, color=d_colors, opacity=0.85,
@@ -756,7 +1055,12 @@ def make_mission_fig(
 
 
 
-def make_proximity_2d(rp, nearby_df: pd.DataFrame, search_radius_km: float) -> go.Figure:
+def make_proximity_2d(
+    rp,
+    nearby_df: pd.DataFrame,
+    search_radius_km: float,
+    rocket_state: Optional[dict] = None,
+) -> go.Figure:
     """2D East-offset × altitude-offset scatter in rocket local frame.
 
     Rocket sits at origin (0, 0).  x-axis = East offset (km), y-axis = altitude
@@ -768,9 +1072,9 @@ def make_proximity_2d(rp, nearby_df: pd.DataFrame, search_radius_km: float) -> g
     if nd.empty:
         return None
 
-    lat_r = rp.lat_deg
-    lon_r = rp.lon_deg
-    alt_r = rp.alt_km
+    lat_r = float(rocket_state["lat_deg"]) if rocket_state else float(rp.lat_deg)
+    lon_r = float(rocket_state["lon_deg"]) if rocket_state else float(rp.lon_deg)
+    alt_r = float(rocket_state["alt_km"]) if rocket_state else float(rp.alt_km)
 
     cos_lat = math.cos(math.radians(lat_r))
     KM_PER_DEG = 111.32
@@ -831,7 +1135,7 @@ def make_proximity_2d(rp, nearby_df: pd.DataFrame, search_radius_km: float) -> g
     ))
 
     # ── Rocket at origin ──────────────────────────────────────────────────────
-    vel_kms = float(np.linalg.norm(rp.vel_eci))
+    vel_kms = float(rocket_state["vel_kms"]) if rocket_state else float(np.linalg.norm(rp.vel_eci))
     fig.add_trace(go.Scatter(
         x=[0], y=[0],
         mode="markers+text",
@@ -889,6 +1193,11 @@ def _render_global_view():
 
     with col_ctrl:
         st.markdown(section_title("sliders", "筛选", level=4, icon_size=20), unsafe_allow_html=True)
+        hour_offset = st.slider(
+            "时刻偏移（相对当前，小时）",
+            -24, 24, 0, step=1, key="gv_hour_offset",
+            help="按选定时刻递推所有目标位置，避免仅用观测片段中点导致的条带空洞。",
+        )
         alt_range = st.slider("高度范围 (km)", 0, 42000, (0, 2000), step=50,
                               key="gv_alt")
         obj_type  = st.selectbox("目标类型",
@@ -898,7 +1207,8 @@ def _render_global_view():
                               key="gv_limit")
 
         if st.button("刷新数据", key="gv_refresh"):
-            load_positions_now.clear()
+            load_positions_at_time.clear()
+            load_debris_near_point.clear()
             st.rerun()
 
         st.markdown("---")
@@ -927,8 +1237,10 @@ def _render_global_view():
         )
 
     with col_map:
+        t_query = datetime.now(timezone.utc) + timedelta(hours=int(hour_offset))
         with st.spinner("加载当前轨道位置…"):
-            df = load_positions_now(
+            df = load_positions_at_time(
+                t_utc=t_query,
                 alt_min=float(alt_range[0]),
                 alt_max=float(alt_range[1]),
                 obj_type=obj_type,
@@ -939,9 +1251,9 @@ def _render_global_view():
             st.warning("无数据。请确认已完成全量摄入并等待 trajectory_segments 覆盖当前时刻。")
             return
 
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        now_str = t_query.strftime("%Y-%m-%d %H:%M UTC")
         st.caption(
-            f"显示 **{len(df):,}** 个目标  ·  {now_str}  ·  "
+            f"显示 **{len(df):,}** 个目标（SGP4 递推） · {now_str}  ·  "
             f"碎片 {(df['object_type']=='DEBRIS').sum():,}  "
             f"载荷 {(df['object_type']=='PAYLOAD').sum():,}  "
             f"火箭级 {(df['object_type']=='ROCKET BODY').sum():,}"
@@ -995,12 +1307,49 @@ def _render_global_view():
                 st.plotly_chart(make_globe_ortho(df), use_container_width=True,
                                 config=dict(displayModeBar=False))
 
-    # ── Altitude histogram (full width) ─────────────────────────────────────
-    leo_df = df[df["alt_km"] <= 2100]
-    if not leo_df.empty:
-        st.markdown(section_title("chart_bar", "高度分布（LEO 段）", level=4, icon_size=18), unsafe_allow_html=True)
-        st.plotly_chart(make_altitude_hist(leo_df), use_container_width=True,
-                        config=dict(displayModeBar=False))
+    # ── Altitude histograms (LEO + full economy space) ──────────────────────
+    h1, h2 = st.columns(2, gap="medium")
+    with h1:
+        leo_df = df[(df["alt_km"] >= 0) & (df["alt_km"] <= 2000)]
+        if not leo_df.empty:
+            st.markdown(section_title("chart_bar", "高度分布（LEO 0–2000 km）", level=4, icon_size=18), unsafe_allow_html=True)
+            st.plotly_chart(
+                make_altitude_hist(
+                    leo_df,
+                    x_max=2000,
+                    title="LEO 细分（线性坐标）",
+                    log_x=False,
+                    bin_size=35,
+                ),
+                use_container_width=True,
+                config=dict(displayModeBar=False),
+            )
+        else:
+            st.info("LEO 范围暂无数据")
+
+    with h2:
+        full_df = load_positions_at_time(
+            t_utc=t_query,
+            alt_min=0.0,
+            alt_max=42000.0,
+            obj_type=obj_type,
+            limit=max(15000, n_limit),
+        )
+        if not full_df.empty:
+            st.markdown(section_title("chart_line", "高度分布（全空间经济范围）", level=4, icon_size=18), unsafe_allow_html=True)
+            st.plotly_chart(
+                make_altitude_hist(
+                    full_df,
+                    x_max=42000,
+                    title="全轨道范围（log10 坐标）",
+                    log_x=True,
+                    bin_size=250,
+                ),
+                use_container_width=True,
+                config=dict(displayModeBar=False),
+            )
+        else:
+            st.info("全空间范围暂无数据")
 
 
 def _render_layer_drilldown():
@@ -1022,14 +1371,15 @@ def _render_layer_drilldown():
         with col:
             st.markdown(
                 f'<div style="{bg}{border}border-radius:8px;padding:10px 6px;'
-                f'text-align:center;height:116px;box-sizing:border-box;">'
-                f'<span style="color:{layer["color"]};font-size:13px;font-weight:bold;'
-                f'display:block;margin-bottom:4px">'
+                f'text-align:center;height:108px;box-sizing:border-box;overflow:hidden;">'
+                f'<span style="color:{layer["color"]};font-size:11px;font-weight:700;'
+                f'display:block;margin-bottom:3px;white-space:nowrap;'
+                f'overflow:hidden;line-height:1.2">'
                 f'{layer["label"]}</span>'
                 f'<span style="color:#ccc;font-size:22px;font-weight:bold;'
-                f'display:block;margin-bottom:4px">{cnt:,}</span>'
-                f'<span style="color:#888;font-size:11px;display:block;'
-                f'overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'
+                f'display:block;margin-bottom:3px">{cnt:,}</span>'
+                f'<span style="color:#888;font-size:10px;display:block;'
+                f'overflow:hidden;white-space:nowrap">'
                 f'{layer["note"]}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -1038,12 +1388,15 @@ def _render_layer_drilldown():
                 st.session_state["ld_layer"] = layer["id"]
                 # Reset slider to default for the new layer
                 st.session_state["ld_pts"] = 5000
-                load_positions_now.clear()
+                load_positions_at_time.clear()
                 st.rerun()
 
     st.markdown("---")
 
     cur = next((l for l in ALTITUDE_LAYERS if l["id"] == sel_id), ALTITUDE_LAYERS[2])
+    cur_total = int(
+        stats_df.loc[stats_df["id"] == cur["id"], "count"].iloc[0]
+    ) if not stats_df.empty else 0
 
     col_3d, col_side = st.columns([3, 1], gap="medium")
 
@@ -1076,17 +1429,23 @@ def _render_layer_drilldown():
 
     with col_3d:
         with st.spinner("渲染 3D 轨道球面…"):
-            df3d = load_positions_now(
+            # Fetch enough propagation candidates so that after strict-altitude filtering
+            # we end up with ≈cur_total points, then 3D sampling caps at max_pts.
+            fetch_limit = min(max(cur_total * 5 + 1000, max_pts * 6), 60000)
+            df3d = load_positions_at_time(
+                t_utc=datetime.now(timezone.utc),
                 alt_min=float(cur["alt_min"]), alt_max=float(cur["alt_max"]),
-                obj_type=obj_type_3d, limit=max_pts,
+                obj_type=obj_type_3d, limit=fetch_limit,
             )
         if df3d.empty:
             st.info("该轨道层暂无数据")
         else:
-            at_limit = len(df3d) >= max_pts
+            rendered = min(len(df3d), max_pts)
+            at_limit = len(df3d) > max_pts
             st.caption(
-                f"**{cur['label']}** 层内目标 {len(df3d):,} 个"
-                + (f"（已达上限 {max_pts:,}，实际更多）" if at_limit else "（全部显示）")
+                f"**{cur['label']}** 层内目标 **{cur_total:,}** 个"
+                + (f"（当前渲染 {rendered:,} / {len(df3d):,}，已达渲染上限 {max_pts:,}）" if at_limit
+                   else f"（当前渲染 {rendered:,}）")
             )
             fig3d = make_3d_sphere(df3d, layer=cur, max_pts=max_pts)
             st.plotly_chart(fig3d, use_container_width=True,
@@ -1107,6 +1466,296 @@ def _render_layer_drilldown():
                 }),
                 use_container_width=True, hide_index=True,
             )
+
+
+_OFP_PRESETS = {
+    "ISS + 碎片云":       "25544\n33751\n22675\n4632\n16609",
+    "GPS 星座样本":       "24876\n25933\n26360\n27663\n28474",
+    "Cosmos-2251 碎片群": "\n".join(str(i) for i in range(33751, 33771)),  # 20 objects
+}
+_OFP_DEFAULT = "25544\n49445\n43013\n20580"
+
+
+# ─── OEM helpers ──────────────────────────────────────────────────────────────
+
+def _traces_to_oem_bytes(traces: dict) -> bytes:
+    """Serialise orbit-forecast traces to a CCSDS OEM 2.0 file (in-memory)."""
+    import tempfile, os
+    from trajectory.oem_io import OEMSegment, OEMState, write_oem
+
+    segs = []
+    for nid, info in traces.items():
+        seg = OEMSegment(
+            object_name=info["name"][:25],
+            object_id=str(abs(nid)) if nid > 0 else info["name"][:16],
+        )
+        for epoch, r, v in zip(info.get("epochs", []),
+                                info.get("eci_r", []),
+                                info.get("eci_v", [])):
+            seg.states.append(OEMState(
+                epoch=epoch,
+                pos_km=np.array(r),
+                vel_kms=np.array(v),
+            ))
+        if seg.states:
+            segs.append(seg)
+
+    if not segs:
+        return b""
+    tmp = tempfile.mktemp(suffix=".oem")
+    try:
+        write_oem(tmp, segs)
+        with open(tmp, "rb") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _oem_bytes_to_traces(raw: bytes) -> dict:
+    """Parse OEM bytes → traces dict (same schema as propagate_orbit_traces).
+    
+    Tries to extract a numeric NORAD ID from OBJECT_ID; falls back to
+    negative index keys for OEM segments that lack NORAD IDs.
+    """
+    import tempfile, os
+    from trajectory.oem_io import read_oem
+    from propagator.sgp4_propagator import StateVector as _SV
+
+    tmp = tempfile.mktemp(suffix=".oem")
+    try:
+        with open(tmp, "w", encoding="ascii", errors="replace") as fh:
+            fh.write(raw.decode("ascii", errors="replace"))
+        segs = read_oem(tmp)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+    traces: dict = {}
+    for idx, seg in enumerate(segs):
+        # Determine key: prefer numeric OBJECT_ID as NORAD
+        obj_id = (seg.object_id or "").strip()
+        key: int = -(idx + 1)
+        if obj_id.isdigit():
+            key = int(obj_id)
+
+        lats, lons, alts, er, ev, eps = [], [], [], [], [], []
+        for state in seg.states:
+            try:
+                sv = _SV(epoch=state.epoch,
+                         x=float(state.pos_km[0]), y=float(state.pos_km[1]), z=float(state.pos_km[2]),
+                         vx=float(state.vel_kms[0]), vy=float(state.vel_kms[1]), vz=float(state.vel_kms[2]))
+                lat2, lon2, alt2 = sv.to_geodetic()
+                if not np.isfinite(alt2):
+                    continue
+                lats.append(float(lat2)); lons.append(float(lon2)); alts.append(float(alt2))
+                er.append([float(state.pos_km[0]), float(state.pos_km[1]), float(state.pos_km[2])])
+                ev.append([float(state.vel_kms[0]), float(state.vel_kms[1]), float(state.vel_kms[2])])
+                eps.append(state.epoch)
+            except Exception:
+                continue
+
+        if lats:
+            traces[key] = {
+                "name": (seg.object_name or f"SEG-{idx+1}")[:25],
+                "object_type": "PAYLOAD",
+                "lat": lats, "lon": lons, "alt_km": alts,
+                "eci_r": er, "eci_v": ev, "epochs": eps,
+            }
+    return traces
+
+
+def _render_orbit_forecast():
+    """Tab: select objects by NORAD ID → SGP4-propagate N orbits → 3D Earth + orbit traces."""
+    # ── Apply any preset that was chosen in the PREVIOUS run ─────────────────
+    # Must happen BEFORE widgets are rendered so that st.text_area sees the new value.
+    if "_ofp_preset_pending" in st.session_state:
+        st.session_state["ofp_nids"] = st.session_state.pop("_ofp_preset_pending")
+        st.session_state.pop("orbit_forecast_data", None)
+
+    st.caption(
+        "输入 NORAD ID，SGP4 传播 N 圈，在三维地球上查看真实轨迹形状"
+        "（圆轨道 / 椭圆轨道、高低起伏一目了然）。"
+        "浅色为起始时刻，深色为末端；空心圆 = 当前历元，实心圆 = 传播终点。"
+    )
+
+    col_ctrl, col_3d = st.columns([1, 3], gap="medium")
+    with col_ctrl:
+        norad_raw = st.text_area(
+            "NORAD ID（每行一个或逗号分隔）",
+            value=_OFP_DEFAULT,
+            height=130,
+            key="ofp_nids",
+            help="ISS=25544  Hubble=20580  Starlink=49445",
+        )
+        n_orbits = st.slider("预报圈数", 0.5, 6.0, 1.5, 0.5, key="ofp_n")
+        btn = st.button("开始预报", type="primary", key="ofp_run", use_container_width=True)
+
+        st.markdown("---")
+        st.caption("**快速示例**")
+        for label, nids_str in _OFP_PRESETS.items():
+            if st.button(label, key=f"ofp_pre_{label}", use_container_width=True):
+                # Store in a staging key; applied at the top of the NEXT run
+                st.session_state["_ofp_preset_pending"] = nids_str
+                st.rerun()
+
+    # Parse NORAD IDs (max 15 to keep performance reasonable)
+    nids_parsed: list[int] = []
+    for part in norad_raw.replace(",", "\n").split("\n"):
+        p = part.strip()
+        if p.isdigit():
+            nids_parsed.append(int(p))
+    nids_parsed = list(dict.fromkeys(nids_parsed))[:15]
+
+    cache_key = (tuple(nids_parsed), float(n_orbits))
+    need_run = btn or st.session_state.get("ofp_cache_key") != cache_key
+
+    if need_run:
+        if not nids_parsed:
+            st.warning("请输入至少一个有效的 NORAD ID。")
+            return
+        with st.spinner(f"SGP4 传播 {len(nids_parsed)} 个目标 × {n_orbits:.1f} 圈…"):
+            traces = propagate_orbit_traces(tuple(nids_parsed), float(n_orbits))
+        st.session_state["orbit_forecast_data"] = traces
+        st.session_state["ofp_cache_key"] = cache_key
+    else:
+        traces = st.session_state.get("orbit_forecast_data", {})
+
+    if not traces:
+        with col_3d:
+            st.info("未在数据库中找到任何目标，请检查 NORAD ID 或等待数据摄入完成。")
+        # Still show the OEM import section even when no SGP4 results
+        _render_oem_panel(col_ctrl=col_ctrl)
+        return
+
+    with col_3d:
+        fig = make_orbit_trace_fig(traces)
+        st.plotly_chart(fig, use_container_width=True,
+                        config=dict(scrollZoom=True, displayModeBar=True))
+
+    # Orbit info table
+    rows_info = []
+    for nid, info in traces.items():
+        alts = info["alt_km"]
+        rows_info.append({
+            "NORAD ID": nid if nid > 0 else "OEM",
+            "名称": info["name"][:28],
+            "类型": _TYPE_CN.get(info["object_type"], info["object_type"]),
+            "近地点(km)": f"{min(alts):.0f}",
+            "远地点(km)": f"{max(alts):.0f}",
+            "高度差(km)": f"{max(alts) - min(alts):.0f}",
+        })
+    st.dataframe(pd.DataFrame(rows_info), use_container_width=True, hide_index=True)
+
+    # OEM export / import panel (below the table)
+    _render_oem_panel(traces=traces)
+
+
+def _render_oem_panel(traces: dict | None = None, col_ctrl=None):
+    """Collapsible OEM export (from current traces) + import (upload → visualise)."""
+    with st.expander("📄 OEM 导出 / 导入（CCSDS 502.0-B-3）", expanded=False):
+        tab_exp, tab_imp = st.tabs(["导出 OEM", "导入 OEM"])
+
+        # ── Export ───────────────────────────────────────────────────────────
+        with tab_exp:
+            # Source 1: current SGP4 propagation traces
+            if traces:
+                oem_bytes = _traces_to_oem_bytes(traces)
+                if oem_bytes:
+                    st.download_button(
+                        "⬇ 下载轨道预报 OEM",
+                        data=oem_bytes,
+                        file_name="orbit_forecast.oem",
+                        mime="text/plain",
+                        key="oem_dl_forecast",
+                        use_container_width=True,
+                    )
+                    st.caption(f"包含 {len(traces)} 个目标的传播轨迹")
+                else:
+                    st.info("当前轨迹缺少 ECI 状态向量，无法导出（需重新传播）。")
+            else:
+                st.info("请先在上方运行轨道预报，再导出 OEM。")
+
+            # Source 2: rocket sim trajectory (if available)
+            if "sim_result" in st.session_state:
+                st.markdown("---")
+                st.caption("**也可导出火箭仿真轨迹：**")
+                mission_id = st.text_input("任务编号", "2026-001", key="oem_exp_mid")
+                if st.button("⬇ 下载仿真轨迹 OEM", key="oem_dl_sim", use_container_width=True):
+                    try:
+                        import tempfile, os as _os
+                        from trajectory.oem_io import sim_result_to_oem_segments, write_oem
+                        _result = st.session_state["sim_result"]
+                        _phases = st.session_state["sim_phases"]
+                        _segs   = sim_result_to_oem_segments(_result, _phases, mission_id=mission_id)
+                        _tmp    = tempfile.mktemp(suffix=".oem")
+                        write_oem(_tmp, _segs)
+                        with open(_tmp, "rb") as fh:
+                            _data = fh.read()
+                        try:
+                            _os.unlink(_tmp)
+                        except OSError:
+                            pass
+                        st.download_button(
+                            "点此下载",
+                            data=_data,
+                            file_name="sim_trajectory.oem",
+                            mime="text/plain",
+                            key="oem_dl_sim_actual",
+                        )
+                    except Exception as exc:
+                        st.error(f"导出失败：{exc}")
+
+        # ── Import ───────────────────────────────────────────────────────────
+        with tab_imp:
+            st.caption("上传 CCSDS OEM 2.0 文件，解析后直接在三维地球上显示轨迹。")
+            uploaded = st.file_uploader(
+                "选择 OEM 文件",
+                type=["oem", "txt", "aem"],
+                key="oem_upload",
+            )
+            if uploaded is not None:
+                try:
+                    raw_bytes = uploaded.read()
+                    oem_traces = _oem_bytes_to_traces(raw_bytes)
+                    if not oem_traces:
+                        st.warning("未能从 OEM 文件中解析出有效轨迹。")
+                    else:
+                        # Merge into current session traces
+                        st.session_state["orbit_forecast_data"] = oem_traces
+                        # Populate NORAD ID field via staging key (widget already rendered)
+                        positive_ids = [k for k in oem_traces if k > 0]
+                        if positive_ids:
+                            st.session_state["_ofp_preset_pending"] = "\n".join(
+                                str(k) for k in positive_ids[:15]
+                            )
+                        # Extract display info
+                        n_segs = len(oem_traces)
+                        all_objs = [info["name"] for info in oem_traces.values()]
+                        st.success(
+                            f"✅ 解析成功：{n_segs} 个轨迹段 — "
+                            + ", ".join(all_objs[:5])
+                            + ("…" if n_segs > 5 else "")
+                        )
+                        st.info("轨迹已加载，请点击上方「开始预报」按钮（或切换其他标签再切回来）刷新 3D 视图。")
+                        # Show parse summary
+                        _parse_rows = []
+                        for nid, info in oem_traces.items():
+                            alts = info["alt_km"]
+                            _parse_rows.append({
+                                "OBJECT_ID": nid if nid > 0 else "N/A",
+                                "名称": info["name"][:25],
+                                "状态点数": len(info["lat"]),
+                                "近地点(km)": f"{min(alts):.0f}" if alts else "—",
+                                "远地点(km)": f"{max(alts):.0f}" if alts else "—",
+                            })
+                        st.dataframe(pd.DataFrame(_parse_rows), use_container_width=True, hide_index=True)
+                except Exception as exc:
+                    st.error(f"解析失败：{exc}")
 
 
 def _render_mission_slider():
@@ -1163,11 +1812,24 @@ def _render_mission_slider():
                 st.session_state["ms_launch_utc"] = launch_utc
                 st.session_state["ms_vehicle"]    = vehicle
                 st.session_state["ms_radius"]     = float(radius_km)
+                # ── Sync to app.py session keys so collision / LCOLA pages can use this trajectory
+                try:
+                    from trajectory.launch_phases import detect_phases as _dp
+                    _phases = _dp(
+                        result.nominal,
+                        t_meco1=result.t_meco1, t_stage_sep=result.t_stage_sep,
+                        t_meco2=result.t_meco2, t_payload_sep=result.t_payload_sep,
+                    )
+                    st.session_state["sim_result"] = result
+                    st.session_state["sim_phases"] = _phases
+                except Exception:
+                    pass
                 st.success(
                     f"{vehicle} 仿真完成 — "
                     f"{len(result.nominal)} 个轨迹点 · "
                     f"最终高度 {result.nominal[-1].alt_km:.1f} km · "
-                    f"最终速度 {float(np.linalg.norm(result.nominal[-1].vel_eci)):.3f} km/s"
+                    f"最终速度 {float(np.linalg.norm(result.nominal[-1].vel_eci)):.3f} km/s  "
+                    f"· 轨迹已同步，可在侧边栏「碰撞风险」/ 「LCOLA 飞越筛选」中直接使用。"
                 )
             except Exception as exc:
                 st.error(f"仿真失败：{exc}")
@@ -1251,7 +1913,7 @@ def _render_mission_slider():
     t_query = launch_utc + timedelta(seconds=float(t_slider))
     with st.spinner("查询附近目标…"):
         nearby = load_debris_near_point(
-            lat=rp.lat_deg, lon=rp.lon_deg, alt_km=rp.alt_km,
+            lat=disp_lat, lon=disp_lon, alt_km=disp_alt_km,
             t_utc=t_query, radius_km=rad, limit=400,
         )
 
@@ -1262,13 +1924,25 @@ def _render_mission_slider():
             risk_events.extend(s.events)
 
     # ── 3D mission figure (left 70%) + info table (right 30%) ───────────────
+    rocket_state = {
+        "lat_deg": disp_lat,
+        "lon_deg": disp_lon,
+        "alt_km": disp_alt_km,
+        "vel_kms": disp_vel_kms,
+    }
     col_3d, col_info = st.columns([7, 3])
     with col_3d:
         st.markdown(
             "<small style='color:#8899aa'>▲ 3D 近场态势（火箭坐标系，地球为背景参考）— 鼠标拖动旋转 / 滚轮缩放 / 双击复位</small>",
             unsafe_allow_html=True,
         )
-        fig_m = make_mission_fig(nom, float(t_slider), nearby, risk_events)
+        fig_m = make_mission_fig(
+            nom,
+            float(t_slider),
+            nearby,
+            risk_events,
+            rocket_state=rocket_state,
+        )
         st.plotly_chart(fig_m, use_container_width=True,
                         config=dict(scrollZoom=True, displayModeBar=True))
     with col_info:
@@ -1285,7 +1959,7 @@ def _render_mission_slider():
 
     # ── 2D proximity view (unlimited zoom) ──────────────────────────────────
     if not nearby.empty:
-        fig_2d = make_proximity_2d(rp, nearby, rad)
+        fig_2d = make_proximity_2d(rp, nearby, rad, rocket_state=rocket_state)
         if fig_2d is not None:
             st.markdown(
                 "<small style='color:#8899aa'>▼ 近场 2D 视图</small>",
@@ -1299,9 +1973,9 @@ def _render_mission_slider():
         mc1, mc2, mc3, mc4 = st.columns(4)
         mc1.metric("附近目标总数", len(nearby))
         mc2.metric("距离最近 (km)", f"{nearby['dist_km'].min():.1f}")
+        _deb_dist = nearby[nearby["object_type"] == "DEBRIS"]["dist_km"]
         mc3.metric("最近碎片",
-                   nearby[nearby["object_type"] == "DEBRIS"]["dist_km"].min()
-                   if (nearby["object_type"] == "DEBRIS").any() else "—",
+                   f"{_deb_dist.min():.1f} km" if not _deb_dist.empty else "—",
                    delta=None)
         high_risk = (nearby["dist_km"] < 20).sum()
         mc4.metric("< 20 km 目标", high_risk,
@@ -1323,19 +1997,32 @@ def render_viz_explorer():
         "三维沉浸式探索平台  ·  "
         "全球碎片实时态势  ·  "
         "高度分层 3D 下钻  ·  "
-        "发射任务安全时滑"
+        "火箭发射碎片预警"
+    )
+    st.markdown(
+        """
+        <style>
+        div.stButton > button {
+            white-space: pre-line !important;
+            text-align: center;
+            line-height: 1.3;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
     if "viz_sub_idx" not in st.session_state:
         st.session_state.viz_sub_idx = 0
 
     _viz_tabs = [
-        ("overview", "全球碎片态势"),
-        ("layers", "高度分层下钻"),
-        ("timeline", "发射安全时滑"),
+        ("overview", "全球碎片\n态势"),
+        ("layers",   "高度分层\n下钻"),
+        ("orbit",    "目标轨道\n预报"),
+        ("timeline", "火箭发射\n碎片预警"),
     ]
-    tc1, tc2, tc3 = st.columns(3, gap="small")
-    for col, i, (icon_id, label) in zip((tc1, tc2, tc3), range(3), _viz_tabs):
+    tc1, tc2, tc3, tc4 = st.columns([1, 1, 1, 1], gap="small")
+    for col, i, (icon_id, label) in zip((tc1, tc2, tc3, tc4), range(4), _viz_tabs):
         with col:
             ic_col, btn_col = st.columns([0.15, 0.85], gap="small")
             with ic_col:
@@ -1363,5 +2050,7 @@ def render_viz_explorer():
         _render_global_view()
     elif _idx == 1:
         _render_layer_drilldown()
+    elif _idx == 2:
+        _render_orbit_forecast()
     else:
         _render_mission_slider()

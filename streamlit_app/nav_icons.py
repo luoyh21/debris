@@ -194,8 +194,9 @@ def section_title(icon_name: str, text: str, *, level: int = 3, icon_size: int =
     ic = icon_inline(icon_name, size=icon_size)
     return (
         f'<{tag} style="display:flex;align-items:center;gap:10px;font-size:{sz};'
-        'font-weight:600;color:#0f172a;margin:0.85em 0 0.45em 0">'
-        f"{ic}<span>{text}</span></{tag}>"
+        'font-weight:600;color:#0f172a;margin:0.85em 0 0.45em 0;'
+        'line-height:1.15;flex-wrap:nowrap;white-space:nowrap">'
+        f"{ic}<span style=\"white-space:nowrap\">{text}</span></{tag}>"
     )
 
 

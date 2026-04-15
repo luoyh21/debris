@@ -12,7 +12,7 @@ services:
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: lq3525926
       POSTGRES_DB: space_debris
     ports:
       - "5432:5432"
@@ -36,7 +36,7 @@ services:
       DB_PORT: "5432"
       DB_NAME: space_debris
       DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: lq3525926
     ports:
       # 显式绑定所有网卡，便于局域网/公网访问（勿写 127.0.0.1）
       - "0.0.0.0:8501:8501"

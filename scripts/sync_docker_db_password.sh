@@ -3,5 +3,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
-docker compose exec -T db psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"
-echo "已执行：ALTER USER postgres PASSWORD 'postgres'（与 compose 中 POSTGRES_PASSWORD 一致）"
+docker compose exec -T db psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'lq3525926';"
+echo "已执行：ALTER USER postgres PASSWORD 'lq3525926'（与 compose 中 POSTGRES_PASSWORD 一致）"

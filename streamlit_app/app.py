@@ -29,9 +29,7 @@ NAV_PAGES = [
     ("overview", "系统概览", "overview"),
     ("viz", "可视化探索", "viz"),
     ("catalog", "目标目录", "catalog"),
-    ("segments", "轨迹片段", "segments"),
     ("sim", "轨迹仿真", "sim"),
-    ("oem", "OEM 管理", "oem"),
     ("lcola", "LCOLA 飞越筛选", "lcola"),
     ("collision", "碰撞风险", "collision"),
     ("ai", "AI 助手", "ai"),
@@ -148,6 +146,225 @@ def _line_chart_zero(data: "pd.DataFrame") -> None:
         .properties(height=300, width="container")
     )
     st.altair_chart(chart, use_container_width=True)
+
+
+def _overview_bar_chart(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    *,
+    color: str = "#1677ff",
+    x_tick_angle: int = 0,
+):
+    """Styled Plotly bar chart for overview dashboard."""
+    import plotly.express as px
+
+    fig = px.bar(
+        df,
+        x=x_col,
+        y=y_col,
+        text=y_col,
+        color_discrete_sequence=[color],
+    )
+    fig.update_traces(
+        texttemplate="%{text:,.0f}",
+        textposition="outside",
+        cliponaxis=False,
+        marker_line_color="#0e4fbf",
+        marker_line_width=0.7,
+        hovertemplate=f"{x_col}: %{{x}}<br>{y_col}: %{{y:,.0f}}<extra></extra>",
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=360,
+        margin=dict(l=12, r=12, t=24, b=12),
+        font=dict(family="Inter, PingFang SC, Microsoft YaHei, sans-serif", size=14, color="#0f172a"),
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        bargap=0.28,
+        hoverlabel=dict(bgcolor="white"),
+        showlegend=False,
+    )
+    fig.update_xaxes(
+        title_text=x_col,
+        tickangle=x_tick_angle,
+        showgrid=False,
+        linecolor="#cbd5e1",
+    )
+    fig.update_yaxes(
+        title_text=y_col,
+        rangemode="tozero",
+        tickformat=",.0f",
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.24)",
+        zeroline=False,
+    )
+    return fig
+
+
+def _overview_histogram(
+    df: pd.DataFrame,
+    x_col: str,
+    *,
+    x_title: str,
+    y_title: str = "数量",
+    nbins: int = 60,
+    color: str = "#1677ff",
+):
+    """Styled Plotly histogram for overview dashboard."""
+    import plotly.express as px
+
+    _d = df.copy()
+    _d[x_col] = pd.to_numeric(_d[x_col], errors="coerce")
+    _d = _d.dropna(subset=[x_col])
+    if _d.empty:
+        return None
+
+    fig = px.histogram(
+        _d,
+        x=x_col,
+        nbins=nbins,
+        color_discrete_sequence=[color],
+    )
+    fig.update_traces(
+        marker_line_color="#0e4fbf",
+        marker_line_width=0.5,
+        opacity=0.95,
+        hovertemplate=f"{x_title}: %{{x:,.1f}}<br>{y_title}: %{{y:,.0f}}<extra></extra>",
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=360,
+        margin=dict(l=12, r=12, t=24, b=12),
+        font=dict(family="Inter, PingFang SC, Microsoft YaHei, sans-serif", size=14, color="#0f172a"),
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        bargap=0.03,
+        hoverlabel=dict(bgcolor="white"),
+        showlegend=False,
+    )
+    fig.update_xaxes(
+        title_text=x_title,
+        tickformat=",.0f",
+        showgrid=False,
+        linecolor="#cbd5e1",
+    )
+    fig.update_yaxes(
+        title_text=y_title,
+        rangemode="tozero",
+        tickformat=",.0f",
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.24)",
+        zeroline=False,
+    )
+    return fig
+
+
+def _overview_orbit_layer_chart(df: pd.DataFrame, alt_col: str):
+    """Layered orbit distribution chart by semi-major-axis altitude."""
+    import plotly.graph_objects as go
+
+    _d = df.copy()
+    _d[alt_col] = pd.to_numeric(_d[alt_col], errors="coerce")
+    _d = _d.dropna(subset=[alt_col])
+    _d = _d[_d[alt_col] >= 0]
+    if _d.empty:
+        return None
+
+    bins = [0, 450, 2000, 35786 - 2000, 35786 + 2000, 120000, float("inf")]
+    labels = ["VLEO(0-450)", "LEO(450-2000)", "MEO(2000-33786)", "GEO带(±2000)", "HEO(37786-120000)", "深空/高椭圆(>120000)"]
+    layer = pd.cut(_d[alt_col], bins=bins, labels=labels, right=False, include_lowest=True)
+    cnt = layer.value_counts().reindex(labels, fill_value=0)
+    total = int(cnt.sum()) or 1
+    pct = (cnt / total * 100).round(1)
+
+    fig = go.Figure(
+        go.Bar(
+            x=labels,
+            y=cnt.values,
+            text=[f"{c:,.0f}<br>{p:.1f}%" for c, p in zip(cnt.values, pct.values)],
+            textposition="outside",
+            marker=dict(
+                color=["#3b82f6", "#1677ff", "#06b6d4", "#8b5cf6", "#f59e0b", "#ef4444"],
+                line=dict(color="#0f172a", width=0.5),
+            ),
+            hovertemplate="轨道层: %{x}<br>数量: %{y:,.0f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=360,
+        margin=dict(l=12, r=12, t=24, b=12),
+        font=dict(family="Inter, PingFang SC, Microsoft YaHei, sans-serif", size=13, color="#0f172a"),
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        bargap=0.18,
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="轨道层", tickangle=-8, showgrid=False, linecolor="#cbd5e1")
+    fig.update_yaxes(
+        title_text="数量",
+        tickformat=",.0f",
+        rangemode="tozero",
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.24)",
+        zeroline=False,
+    )
+    return fig
+
+
+def _overview_log10_histogram(df: pd.DataFrame, x_col: str):
+    """Histogram on log10(x+1) axis to reduce long-tail empty space."""
+    import plotly.express as px
+    import numpy as np
+
+    _d = df.copy()
+    _d[x_col] = pd.to_numeric(_d[x_col], errors="coerce")
+    _d = _d.dropna(subset=[x_col])
+    _d = _d[_d[x_col] >= 0]
+    if _d.empty:
+        return None
+
+    _d["log10_x"] = (_d[x_col] + 1.0).map(lambda v: float(np.log10(v)))
+
+    fig = px.histogram(
+        _d,
+        x="log10_x",
+        nbins=60,
+        color_discrete_sequence=["#1677ff"],
+    )
+    fig.update_traces(
+        marker_line_color="#0e4fbf",
+        marker_line_width=0.5,
+        opacity=0.95,
+        hovertemplate="log10(半长轴高度+1): %{x:.2f}<br>数量: %{y:,.0f}<extra></extra>",
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=360,
+        margin=dict(l=12, r=12, t=24, b=12),
+        font=dict(family="Inter, PingFang SC, Microsoft YaHei, sans-serif", size=14, color="#0f172a"),
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        bargap=0.03,
+        showlegend=False,
+    )
+    fig.update_xaxes(
+        title_text="半长轴高度 (km, log10刻度)",
+        tickvals=[0, 1, 2, 3, 4, 5, 6],
+        ticktext=["0", "10", "100", "1k", "10k", "100k", "1M"],
+        showgrid=False,
+        linecolor="#cbd5e1",
+    )
+    fig.update_yaxes(
+        title_text="数量",
+        rangemode="tozero",
+        tickformat=",.0f",
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.24)",
+        zeroline=False,
+    )
+    return fig
 
 
 # ------------------------------------------------------------------
@@ -282,7 +499,7 @@ if page == "overview":
         _s = _stats_df.iloc[0]
         col1.metric("在轨目标总数",        int(_s["total"]))
         col2.metric("空间碎片数量",        int(_s["debris"]))
-        col3.metric("轨迹片段总数",        int(_s["segs"]))
+        col3.metric("轨迹片段总数",        f"{int(_s['segs']):,}")
         col4.metric("高风险事件(Pc>1e-6)", int(_s["risks"]))
     else:
         for c in (col1, col2, col3, col4):
@@ -308,25 +525,72 @@ if page == "overview":
             ORDER BY 数量 DESC
         """)
         if not type_df.empty:
-            _bar_chart_zero(type_df.set_index("类型")["数量"])
+            fig_type = _overview_bar_chart(type_df, "类型", "数量", x_tick_angle=0)
+            st.plotly_chart(fig_type, use_container_width=True)
         else:
             st.info("暂无数据，请先运行：`python3 run.py ingest`")
 
     with col_right:
-        st.markdown(section_title("chart_line", "轨道高度分布（近地点，km）"), unsafe_allow_html=True)
-        alt_df = run_query("""
+        st.markdown(section_title("chart_line", "轨道分布（半长轴）"), unsafe_allow_html=True)
+        # From raw GP elements: a = (mu / n^2)^(1/3), altitude = a - R_earth
+        sma_df = run_query("""
+            WITH latest_gp AS (
+                SELECT DISTINCT ON (norad_cat_id)
+                    norad_cat_id,
+                    mean_motion
+                FROM gp_elements
+                WHERE mean_motion IS NOT NULL AND mean_motion > 0
+                ORDER BY norad_cat_id, epoch DESC
+            )
             SELECT
-                FLOOR(perigee_km / 200) * 200 AS 高度区间_km,
-                COUNT(*) AS 数量
-            FROM catalog_objects
-            WHERE perigee_km IS NOT NULL AND perigee_km > 0 AND perigee_km < 40000
-            GROUP BY 1
-            ORDER BY 1
+                POWER(398600.4418 / POWER((2 * PI() * mean_motion / 86400.0), 2), 1.0 / 3.0) - 6378.137
+                    AS 半长轴高度_km
+            FROM latest_gp
+            WHERE mean_motion > 0
         """)
-        if not alt_df.empty:
-            _bar_chart_zero(alt_df.set_index("高度区间_km")["数量"])
+        fig_sma = _overview_log10_histogram(sma_df, "半长轴高度_km") if not sma_df.empty else None
+        if fig_sma is not None:
+            st.plotly_chart(fig_sma, use_container_width=True)
+            st.caption("说明：采用 log10 横轴，缓解长尾轨道导致的右侧留白问题。")
         else:
-            st.info("暂无高度数据")
+            st.info("暂无半长轴数据")
+
+    st.markdown(section_title("layers", "轨道层分布（按半长轴高度分层）"), unsafe_allow_html=True)
+    if not sma_df.empty:
+        fig_layer = _overview_orbit_layer_chart(sma_df, "半长轴高度_km")
+        if fig_layer is not None:
+            st.plotly_chart(fig_layer, use_container_width=True)
+        else:
+            st.info("暂无可分层的轨道数据")
+    else:
+        st.info("暂无可分层的轨道数据")
+
+    st.markdown(section_title("chart_line", "轨道倾角分布（来自 GP 原始数据）"), unsafe_allow_html=True)
+    inc_df = run_query("""
+        WITH latest_gp AS (
+            SELECT DISTINCT ON (norad_cat_id)
+                norad_cat_id,
+                inclination
+            FROM gp_elements
+            WHERE inclination IS NOT NULL
+            ORDER BY norad_cat_id, epoch DESC
+        )
+        SELECT inclination AS 倾角_deg
+        FROM latest_gp
+        WHERE inclination >= 0 AND inclination <= 180
+    """)
+    fig_inc = _overview_histogram(
+        inc_df,
+        "倾角_deg",
+        x_title="倾角 (°)",
+        y_title="数量",
+        nbins=72,  # ~2.5° per bin
+        color="#1890ff",
+    ) if not inc_df.empty else None
+    if fig_inc is not None:
+        st.plotly_chart(fig_inc, use_container_width=True)
+    else:
+        st.info("暂无倾角数据")
 
     st.markdown(section_title("globe_meridians", "主要国家在轨目标数量（Top 15）"), unsafe_allow_html=True)
     country_df = run_query("""
@@ -443,60 +707,16 @@ elif page == "catalog":
         st.warning("当前筛选条件下无数据，请调整筛选范围或检查数据摄入状态。")
 
 # ------------------------------------------------------------------
-# 页面：轨迹片段
+# 页面：轨迹片段（已迁移到可视化探索 → 轨道预报）
 # ------------------------------------------------------------------
 elif page == "segments":
-    st.markdown(title_row("segments", "轨迹片段查询"), unsafe_allow_html=True)
-    st.caption("由 SGP4 传播器生成，每段为 3D LineStringZ（ECI/大地坐标双存储）")
-
-    col1, col2, col3 = st.columns(3)
-    norad_filter  = col1.text_input("NORAD ID（空=全部）", "")
-    time_window   = col2.selectbox("时间窗口", ["未来 1 小时", "未来 6 小时", "未来 24 小时", "全部"])
-    obj_type_filter = col3.selectbox("目标类型", ["全部", "碎片", "载荷", "箭体"])
-
-    t_now = datetime.now(timezone.utc)
-    t_map = {"未来 1 小时": 1, "未来 6 小时": 6, "未来 24 小时": 24, "全部": 24 * 365}
-    t_end = t_now + timedelta(hours=t_map[time_window])
-
-    extra_clauses = []
-    params2: dict = {"t_now": t_now, "t_end": t_end}
-
-    if norad_filter.strip():
-        extra_clauses.append("ts.norad_cat_id = :nid")
-        params2["nid"] = int(norad_filter.strip())
-
-    type_sql_map = {"碎片": "DEBRIS", "载荷": "PAYLOAD", "箭体": "ROCKET BODY"}
-    if obj_type_filter != "全部":
-        extra_clauses.append("co.object_type = :otype")
-        params2["otype"] = type_sql_map[obj_type_filter]
-
-    extra_where = ("AND " + " AND ".join(extra_clauses)) if extra_clauses else ""
-
-    seg_df = run_query(f"""
-        SELECT
-            ts.norad_cat_id            AS "NORAD ID",
-            co.name                    AS "名称",
-            CASE co.object_type
-                WHEN 'DEBRIS'      THEN '碎片'
-                WHEN 'PAYLOAD'     THEN '载荷'
-                WHEN 'ROCKET BODY' THEN '箭体'
-                ELSE co.object_type END AS "类型",
-            to_char(ts.t_start AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS "开始时间(UTC)",
-            to_char(ts.t_end   AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS "结束时间(UTC)",
-            ROUND(ST_Length(ts.geom_eci)::numeric, 1)                      AS "ECI弧长(km)"
-        FROM trajectory_segments ts
-        JOIN catalog_objects co ON co.norad_cat_id = ts.norad_cat_id
-        WHERE ts.t_start <= :t_end AND ts.t_end >= :t_now
-        {extra_where}
-        ORDER BY ts.t_start
-        LIMIT 1000
-    """, params2)
-
-    st.write(f"**找到 {len(seg_df)} 条片段**")
-    if not seg_df.empty:
-        st.dataframe(seg_df, use_container_width=True, height=550)
-    else:
-        st.info("当前时间窗口内无匹配片段")
+    st.info(
+        "**轨迹片段** 功能已整合到「可视化探索 → 轨道预报」标签页，"
+        "在那里可选定任意目标并在三维地球上查看真实传播轨迹（含椭圆轨道可视化）。"
+    )
+    if st.button("前往可视化探索", type="primary"):
+        st.session_state["page"] = "viz"
+        st.rerun()
 
 # ------------------------------------------------------------------
 # 页面：碰撞风险（统一使用 6-DOF 仿真轨迹 + Foster Pc）
@@ -963,10 +1183,7 @@ elif page == "sim":
         lat = col4.number_input("发射场纬度（°）", value=19.61, format="%.4f")
         lon = col5.number_input("发射场经度（°）", value=110.95, format="%.4f")
         t_max = col6.number_input("仿真时长（s）", value=3600, step=300)
-        col7, col8, col9 = st.columns(3)
-        dt_out  = col7.number_input("输出步长（s）", value=10, step=5)
-        run_mc  = col8.checkbox("运行蒙特卡洛协方差（~50次）", value=True)
-        mc_runs = col9.number_input("MC 次数", value=30, step=10, disabled=not run_mc)
+        dt_out = st.number_input("输出步长（s）", value=10, step=5)
         submitted = st.form_submit_button("运行仿真", type="primary")
 
     if submitted:
@@ -989,7 +1206,7 @@ elif page == "sim":
                     launch_alt_km=0.04, launch_az_deg=azimuth,
                     launch_utc=launch_utc,
                     t_max_s=float(t_max), dt_out_s=float(dt_out),
-                    run_mc=run_mc, mc_n_runs=int(mc_runs),
+                    run_mc=False,
                 )
                 result = simulate(cfg)
                 phases = detect_phases(
@@ -1063,78 +1280,15 @@ elif page == "sim":
                      } for p in nom[:100]]
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-        # 协方差可视化
-        if result.covariances is not None:
-            st.subheader("位置不确定性（MC 协方差 1-σ, km）")
-            mc_times = np.arange(0, result.config.t_max_s, result.mc_dt_s)
-            n = min(len(mc_times), len(result.covariances))
-            sigma_pos = [float(np.sqrt(np.trace(result.covariances[i,:3,:3])/3))
-                         for i in range(n)]
-            df_cov = pd.DataFrame({
-                "MET (s)": mc_times[:n],
-                "位置1σ (km)": sigma_pos,
-            }).set_index("MET (s)")
-            _line_chart_zero(df_cov)
 
 # ------------------------------------------------------------------
-# 页面：OEM 管理
+# 页面：OEM 管理（已整合到可视化探索 → 轨道预报）
 # ------------------------------------------------------------------
 elif page == "oem":
-    st.markdown(title_row("oem", "CCSDS OEM 轨道星历管理"), unsafe_allow_html=True)
-    st.caption(
-        "符合 CCSDS 502.0-B-3 的 ASCII/KVN 格式。包含位置+速度状态向量及可选协方差块。"
-    )
-
-    tab_gen, tab_view = st.tabs(["生成 OEM 文件", "查看 / 解析 OEM"])
-
-    with tab_gen:
-        st.subheader("从仿真结果生成 OEM")
-        if "sim_result" not in st.session_state:
-            st.info("请先在「轨迹仿真」页面运行仿真。")
-        else:
-            result = st.session_state["sim_result"]
-            phases = st.session_state["sim_phases"]
-            mission_id = st.text_input("任务编号", "2026-001")
-            oem_path   = st.text_input("输出文件路径", "/tmp/mission.oem")
-
-            if st.button("生成 OEM 文件"):
-                try:
-                    from trajectory.oem_io import sim_result_to_oem_segments, write_oem
-                    segs = sim_result_to_oem_segments(result, phases, mission_id=mission_id)
-                    write_oem(oem_path, segs)
-                    st.success(f"OEM 文件已写入：{oem_path}，共 {len(segs)} 段")
-
-                    # Show preview
-                    with open(oem_path, "r") as fh:
-                        content = fh.read()
-                    st.code(content[:3000] + ("…（截断）" if len(content) > 3000 else ""), language="text")
-                except Exception as exc:
-                    st.error(f"生成失败：{exc}")
-
-    with tab_view:
-        st.subheader("解析现有 OEM 文件")
-        oem_input_path = st.text_input("OEM 文件路径", "/tmp/mission.oem", key="oem_view_path")
-        if st.button("解析 OEM 文件"):
-            try:
-                from trajectory.oem_io import read_oem
-                import pandas as pd
-                segs = read_oem(oem_input_path)
-                st.success(f"解析成功：{len(segs)} 个 META 段")
-                for i, seg in enumerate(segs):
-                    with st.expander(f"段 {i+1}: {seg.object_name}  ({len(seg.states)} 条状态)"):
-                        rows = [{
-                            "UTC": s.epoch.strftime("%Y-%m-%dT%H:%M:%S"),
-                            "X(km)": round(s.pos_km[0],3),
-                            "Y(km)": round(s.pos_km[1],3),
-                            "Z(km)": round(s.pos_km[2],3),
-                            "VX(km/s)": round(s.vel_kms[0],6),
-                            "VY(km/s)": round(s.vel_kms[1],6),
-                            "VZ(km/s)": round(s.vel_kms[2],6),
-                            "有协方差": "✓" if s.cov_6x6 is not None else "–",
-                        } for s in seg.states]
-                        st.dataframe(pd.DataFrame(rows), use_container_width=True)
-            except Exception as exc:
-                st.error(f"解析失败：{exc}")
+    st.info("OEM 功能已整合到「可视化探索 → 轨道预报」，在那里可导出/导入 OEM 文件。")
+    if st.button("前往可视化探索", type="primary"):
+        st.session_state["page"] = "viz"
+        st.rerun()
 
 # ------------------------------------------------------------------
 # 页面：LCOLA 飞越筛选
