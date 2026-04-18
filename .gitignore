@@ -12,3 +12,4 @@ build/
 *.sqlite
 *.db
 *.log
+pgdata/

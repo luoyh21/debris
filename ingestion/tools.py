@@ -62,13 +62,15 @@ def query_debris_in_region(
     type_filter = "" if ot == "ALL" \
                   else f" AND UPPER(co.object_type) = '{ot}'"
     alt_filter = (
-        f" AND co.perigee_km >= {alt_min_km}"
-        f" AND co.apogee_km  <= {alt_max_km + 500}"   # apogee ceiling with buffer
+        f" AND co.perigee_km <= {alt_max_km + 500}"
+        f" AND co.apogee_km  >= {alt_min_km}"
     )
 
-    # Single query: window function returns total count alongside each row,
-    # avoiding a second round-trip for the separate count_sql.
-    sql = text(f"""
+    # ── Strategy A: PostGIS trajectory_segments (if fresh) ──────────────────
+    objects: list = []
+    method_used = "PostGIS"
+
+    postigs_sql = text(f"""
         SELECT
             co.norad_cat_id,
             co.name,
@@ -110,35 +112,117 @@ def query_debris_in_region(
 
     try:
         with session_scope() as sess:
-            rows = sess.execute(sql, params).fetchall()
-    except Exception as exc:
-        return {"error": str(exc), "objects": [], "count": 0}
+            rows = sess.execute(postigs_sql, params).fetchall()
+        for r in rows:
+            objects.append({
+                "norad_cat_id": r[0],
+                "name":         r[1] or f"NORAD-{r[0]}",
+                "object_type":  r[2] or "UNKNOWN",
+                "country":      r[3] or "?",
+                "perigee_km":   round(float(r[4]), 1) if r[4] is not None else None,
+                "apogee_km":    round(float(r[5]), 1) if r[5] is not None else None,
+                "inclination_deg": round(float(r[6]), 2) if r[6] is not None else None,
+                "eccentricity": round(float(r[7]), 4)    if r[7] is not None else None,
+                "approx_dist_km": float(r[8]) if r[8] is not None else None,
+            })
+    except Exception:
+        pass
 
-    total = int(rows[0][9]) if rows else 0
+    # ── Strategy B: SGP4 real-time propagation (fallback if PostGIS empty) ─
+    if not objects:
+        method_used = "SGP4"
+        try:
+            import math, numpy as np
+            from sgp4.api import Satrec, WGS84, jday
+            from propagator.sgp4_propagator import StateVector
+
+            sgp4_sql = text(f"""
+                WITH latest_gp AS (
+                    SELECT DISTINCT ON (norad_cat_id)
+                        norad_cat_id, mean_motion, eccentricity,
+                        inclination AS gp_inc, ra_of_asc_node,
+                        arg_of_pericenter, mean_anomaly, bstar,
+                        tle_line1, tle_line2
+                    FROM gp_elements
+                    WHERE norad_cat_id IS NOT NULL
+                    ORDER BY norad_cat_id, epoch DESC
+                )
+                SELECT co.norad_cat_id, co.name, co.object_type, co.country_code,
+                       co.perigee_km, co.apogee_km,
+                       lg.gp_inc, lg.eccentricity,
+                       lg.tle_line1, lg.tle_line2
+                FROM catalog_objects co
+                JOIN latest_gp lg ON lg.norad_cat_id = co.norad_cat_id
+                WHERE co.perigee_km <= {alt_max_km + 500}
+                  AND co.apogee_km  >= {alt_min_km}
+                  {type_filter}
+                ORDER BY co.norad_cat_id
+                LIMIT 8000
+            """)
+
+            with session_scope() as sess:
+                cand_rows = sess.execute(sgp4_sql).fetchall()
+
+            t_mid = t_start + (t_end - t_start) / 2
+            jd, fr = jday(t_mid.year, t_mid.month, t_mid.day,
+                          t_mid.hour, t_mid.minute,
+                          t_mid.second + t_mid.microsecond / 1e6)
+
+            ref_lat, ref_lon, ref_alt = lat_deg, lon_deg, (alt_min_km + alt_max_km) / 2
+            ref_r = 6371.0 + ref_alt
+            ref_x = ref_r * math.cos(math.radians(ref_lat)) * math.cos(math.radians(ref_lon))
+            ref_y = ref_r * math.cos(math.radians(ref_lat)) * math.sin(math.radians(ref_lon))
+            ref_z = ref_r * math.sin(math.radians(ref_lat))
+
+            for row in cand_rows:
+                try:
+                    sat = Satrec.twoline2rv(str(row.tle_line1), str(row.tle_line2))
+                    err, r, v = sat.sgp4(jd, fr)
+                    if err != 0:
+                        continue
+                    sv = StateVector(epoch=t_mid,
+                                     x=float(r[0]), y=float(r[1]), z=float(r[2]),
+                                     vx=float(v[0]), vy=float(v[1]), vz=float(v[2]))
+                    slat, slon, salt = sv.to_geodetic()
+                    if not np.isfinite(salt) or salt < alt_min_km or salt > alt_max_km:
+                        continue
+                    sr = 6371.0 + salt
+                    sx = sr * math.cos(math.radians(slat)) * math.cos(math.radians(slon))
+                    sy = sr * math.cos(math.radians(slat)) * math.sin(math.radians(slon))
+                    sz = sr * math.sin(math.radians(slat))
+                    dist = math.sqrt((sx - ref_x)**2 + (sy - ref_y)**2 + (sz - ref_z)**2)
+                    if dist <= radius_km:
+                        objects.append({
+                            "norad_cat_id": row.norad_cat_id,
+                            "name":         row.name or f"NORAD-{row.norad_cat_id}",
+                            "object_type":  row.object_type or "UNKNOWN",
+                            "country":      row.country_code or "?",
+                            "perigee_km":   round(float(row.perigee_km), 1) if row.perigee_km else None,
+                            "apogee_km":    round(float(row.apogee_km), 1) if row.apogee_km else None,
+                            "inclination_deg": round(float(row.gp_inc), 2) if row.gp_inc else None,
+                            "eccentricity": round(float(row.eccentricity), 4) if row.eccentricity else None,
+                            "approx_dist_km": round(dist, 1),
+                        })
+                except Exception:
+                    continue
+
+            objects.sort(key=lambda o: o.get("approx_dist_km") or 9999)
+            objects = objects[:min(limit, 200)]
+        except Exception:
+            pass
+
+    total = len(objects)
     type_counts: dict = {}
-    objects = []
-    for r in rows:
-        ot = r[2] or "UNKNOWN"
+    for o in objects:
+        ot = o["object_type"]
         type_counts[ot] = type_counts.get(ot, 0) + 1
-        objects.append({
-            "norad_cat_id": r[0],
-            "name":         r[1] or f"NORAD-{r[0]}",
-            "object_type":  ot,
-            "country":      r[3] or "?",
-            "perigee_km":   round(float(r[4]), 1) if r[4] is not None else None,
-            "apogee_km":    round(float(r[5]), 1) if r[5] is not None else None,
-            "inclination_deg": round(float(r[6]), 2) if r[6] is not None else None,
-            "eccentricity": round(float(r[7]), 4)    if r[7] is not None else None,
-            "approx_dist_km": float(r[8]) if r[8] is not None else None,
-        })
 
     type_str = ", ".join(f"{v} {k}" for k, v in type_counts.items())
     summary = (
         f"在 ({lat_deg:.2f}°, {lon_deg:.2f}°) 半径 {radius_km:.0f} km、"
         f"高度 {alt_min_km:.0f}–{alt_max_km:.0f} km 范围内，"
         f"共检索到 {total} 个空间对象（{type_str}），"
-        f"时间窗口 {t_start.strftime('%Y-%m-%d %H:%M')} – "
-        f"{t_end.strftime('%H:%M')} UTC。"
+        f"时间 {t_start.strftime('%Y-%m-%d %H:%M')} UTC · 方法: {method_used}。"
     )
 
     return {
@@ -153,6 +237,7 @@ def query_debris_in_region(
         "showing": len(objects),
         "objects": objects,
         "summary": summary,
+        "method":  method_used,
     }
 
 

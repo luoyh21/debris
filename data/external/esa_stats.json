@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html
+  lang="en"
+>
+  <head>
+  
+    <title>Space Debris User Portal</title>
+  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="IjcyY2I0YTFlZjliNGFlYjhhZDA3MzA1YmYzYTUyNDJkZjc0ODcxZTMi.aeGg3Q.0yJ56oaWZ9rvcW0O5mtXDU-owMY">
+
+  
+  <style>
+    /*
+SPDX-License-Identifier: LicenseRef-ESA-Community-Weak
+SPDX-FileCopyrightText: 2022 European Space Agency
+*/
+
+/* by default, components in the navbar get styling so that they fit well
+   in the collapsed section of the nav. Let's override this so it is always
+   styled correctly.
+*/
+.navbar-brand-dropdown .navbar-nav {
+  float: left;
+  margin: 0;
+}
+
+/* this matches the bootstrap selector we're overriding */
+.navbar-brand-dropdown .navbar-nav > li > a {
+  padding-top: 15px;
+  padding-bottom: 15px;
+}
+
+/* we need to fix the alignment of our navbar-brand replacement */
+.navbar-brand-dropdown .dropdown-toggle.navbar-brand {
+  /* we use negative margin because there is a shaded rectangle which would
+     look wrong if we instead altered the padding.
+  */
+  margin-left: -15px;
+}
+
+.dropdown-menu-brand {
+  margin-left: -15px;
+}
+  </style>
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/site.webmanifest">
+  <link rel="mask-icon" href="/static/safari-pinned-tab.svg" color="#142755">
+  <link rel="shortcut icon" href="/static/favicon.ico">
+  <meta name="apple-mobile-web-app-title" content="SDUP">
+  <meta name="application-name" content="SDUP">
+  <meta name="msapplication-TileColor" content="#da532c">
+  <meta name="msapplication-config" content="/static/browserconfig.xml">
+  <meta name="theme-color" content="#142755">
+  
+  <link rel="stylesheet" href="/static/dist/assets/main-D-YWAD90.css" />
+<script type="module" src="/static/dist/assets/main-DrpBjG0n.js"></script>
+<link rel="modulepreload" href="/static/dist/assets/jquery-DkvTqftU.js" />
+
+  </head>
+  <body
+  style="margin-bottom: 70px;"
+>
+    
+  
+  <nav class="navbar navbar-default">
+    <div class="navbar-container">
+      <div class="navbar-header">
+        <button
+          type="button"
+          class="navbar-toggle collapsed"
+          data-toggle="collapse"
+          data-target="#nav-collapse"
+          aria-expanded="false"
+        >
+          <span class="sr-only">Toggle nagivation</span>
+          <span class="icon-bar"></span>
+          <span class="icon-bar"></span>
+          <span class="icon-bar"></span>
+        </button>
+        
+  <div class="container-fluid navbar-brand-dropdown">
+    <ul class="nav navbar-nav">
+      <li class="dropdown">
+        <a
+          class="dropdown-toggle navbar-brand"
+          href="#"
+          data-toggle="dropdown"
+          role="button"
+          aria-haspopup="true"
+          aria-expanded="false"
+        >
+          Space Debris User Portal
+          <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu dropdown-menu-brand">
+          
+            
+          
+            
+              <li><a href="https://discosweb.esoc.esa.int">DISCOSweb</a></li>
+            
+          
+            
+              <li><a href="https://fragmentation.esoc.esa.int">Fragmentation Database</a></li>
+            
+          
+            
+              <li><a href="https://reentry.esoc.esa.int">Re-entry Predictions</a></li>
+            
+          
+            
+              <li><a href="https://debris-forum.sdo.esoc.esa.int">Space Debris Forum</a></li>
+            
+          
+            
+              <li><a href="https://account.sdo.esoc.esa.int">User Account</a></li>
+            
+          
+            
+              <li><a href="https://www.esa.int/debris">Space Debris @ ESA</a></li>
+            
+          
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+      </div>
+
+      <div class="collapse navbar-collapse" id="nav-collapse">
+        <ul class="nav navbar-nav">
+          
+  <li class="">
+    <a  href="/">
+      
+        Home
+      
+      
+    </a>
+  </li>
+
+          <li class="dropdown ">
+            <a
+              href="#"
+              class="dropdown-toggle"
+              data-toggle="dropdown"
+              role="button"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              Tools <span class="caret"></span>
+            </a>
+            <ul class="dropdown-menu">
+              
+  <li class="">
+    <a  href="/drama/">
+      
+        DRAMA
+      
+      
+    </a>
+  </li>
+
+              
+  <li class="">
+    <a  href="/master/">
+      
+        MASTER
+      
+      
+    </a>
+  </li>
+
+              
+  <li class="">
+    <a  href="/oriundo/">
+      
+        ORIUNDO
+      
+      
+    </a>
+  </li>
+
+              
+  <li class="">
+    <a  href="/proof/">
+      
+        PROOF
+      
+      
+    </a>
+  </li>
+
+              
+  <li class="">
+    <a  href="/solmag/">
+      
+        SOLMAG
+      
+      
+    </a>
+  </li>
+
+              
+                
+  <li class="">
+    <a  href="/lca/">
+      
+        LCA Database
+      
+      
+    </a>
+  </li>
+
+              
+            </ul>
+          </li>
+          
+  <li class="">
+    <a  href="/documents/">
+      
+        Documents
+      
+      
+    </a>
+  </li>
+
+          
+  <li class="">
+    <a  href="/discosweb/statistics/">
+      
+        Space Environment Statistics
+      
+      
+    </a>
+  </li>
+
+          
+  <li class="">
+    <a  href="/contact">
+      
+        Contact Us
+      
+      
+    </a>
+  </li>
+
+        </ul>
+        <ul class="nav navbar-nav navbar-right">
+          
+            <li>
+              <a id="nav-register" href="/register">
+                <i class="fas fa-user-plus"></i> Register
+              </a>
+            </li>
+            <li>
+              <a id="nav-sign-in" href="/login">
+                <i class="fas fa-sign-in-alt"></i> Sign in
+              </a>
+            </li>
+          
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+    
+  <div class="container">
+    
+      
+  
+    
+  
+
+    
+    
+  <div class="jumbotron">
+    <h1>404 Not Found</h1>
+    <p>
+      This page doesn't exist.
+    </p>
+  </div>
+
+  </div>
+
+
+    
+  
+
+  
+    <nav class="navbar navbar-default navbar-fixed-bottom">
+      <div class="container">
+        <p class="navbar-text">
+          <a href="/cookies" class="navbar-link">Cookie Policy</a>
+        </p>
+      </div>
+    </nav>
+  
+
+  </body>
+</html>

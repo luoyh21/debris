@@ -32,7 +32,7 @@ import numpy as np
 
 from trajectory.launch_phases import LaunchPhase, PhaseName
 from trajectory.oem_io import OEMSegment
-from lcola.encounter import compute_encounter, EncounterGeometry
+from lcola.encounter import compute_encounter, compute_encounter_fast, EncounterGeometry
 from lcola.foster_pc import foster_pc as _foster_pc
 from lcola.foster_pc import chan_pc as _chan_pc
 
@@ -45,6 +45,7 @@ MISS_ABSOLUTE_KM = 25.0    # hard exclusion zone [km]
 HBR_KM           = 0.02    # combined hard-body radius [km] (20 m)
 COARSE_THRESH_KM = 200.0   # PostGIS pre-filter radius [km]
 FINE_THRESH_KM   = 50.0    # secondary filter for TCA search [km]
+_LCOLA_MAX_CANDS = 800     # candidate cap for LCOLA window screening
 
 # ─── data structures ──────────────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ class ScreeningReport:
 
 # ─── debris propagation helpers ──────────────────────────────────────────────
 
-_PROPAGATION_DT_S = 30.0   # propagation step for all TCA searches
+_PROPAGATION_DT_S = 60.0   # propagation step for pre-computation (LCOLA window scan)
 
 
 def _fetch_tle_batch(norad_ids: List[int]) -> Dict[int, "Satrec"]:
@@ -275,16 +276,15 @@ def _spatial_prefilter(phase: LaunchPhase, t_start: datetime, t_end: datetime,
         if rows:
             return [(r[0], r[1] or str(r[0])) for r in rows]
 
-        # Fallback: use orbital altitude range when trajectory_segments is sparse
+        # Fallback: use orbital altitude range from the unified multi-source view
         buf_km = threshold_km * 1.5
         with session_scope() as sess:
             rows = sess.execute(text("""
-                SELECT DISTINCT ON (co.norad_cat_id) co.norad_cat_id, co.name
-                FROM catalog_objects co
-                JOIN gp_elements g ON g.norad_cat_id = co.norad_cat_id
-                WHERE g.perigee_km  <= :alt_max
-                  AND g.apogee_km   >= :alt_min
-                ORDER BY co.norad_cat_id, g.epoch DESC
+                SELECT u.norad_cat_id, u.name
+                FROM v_unified_objects u
+                WHERE u.perigee_km  <= :alt_max
+                  AND u.apogee_km   >= :alt_min
+                ORDER BY u.norad_cat_id
                 LIMIT 2000
             """), {
                 "alt_min": max(0.0, alt_min - buf_km),
@@ -340,7 +340,8 @@ class FlyThroughScreener:
         nominal_launch: datetime,
         step_s:         float = 60.0,    # 1-minute cadence
         max_events_per_step: int = 500,
-        progress_cb    = None,           # optional callback(step, total_steps)
+        progress_cb    = None,           # optional callback(step, total_steps, msg=None)
+        inject_demo:   bool  = False,
     ) -> ScreeningReport:
         """
         Run the full LCOLA fly-through screening.
@@ -371,8 +372,17 @@ class FlyThroughScreener:
         n_total = len(t_offsets)
         DT = _PROPAGATION_DT_S
 
+        def _report_prep(msg: str):
+            """Signal a preparation step to the progress callback (step=-1)."""
+            if progress_cb:
+                try:
+                    progress_cb(-1, n_total, msg)
+                except Exception:
+                    pass
+
         # ── Step 1: spatial prefilter once per phase (at nominal launch) ──────
         log.info("LCOLA: running spatial prefilter for %d phases…", len(self.phases))
+        _report_prep("空间预筛选中…")
         phase_candidates: Dict[str, List[Tuple[int, str]]] = {}
         for phase in self.phases:
             t_s = nominal_launch + timedelta(seconds=phase.t_start_met)
@@ -380,7 +390,10 @@ class FlyThroughScreener:
             if (t_e - t_s).total_seconds() < 1:
                 phase_candidates[phase.name] = []
                 continue
+            _report_prep(f"空间预筛选：{phase.name}")
             cands = _spatial_prefilter(phase, t_s, t_e, self.coarse_threshold_km)
+            # Cap candidates to keep window-scan tractable
+            cands = cands[:_LCOLA_MAX_CANDS]
             phase_candidates[phase.name] = cands
             log.info("  phase %-20s → %d candidates", phase.name, len(cands))
 
@@ -388,6 +401,7 @@ class FlyThroughScreener:
         all_nids = list({nid for cands in phase_candidates.values()
                          for nid, _ in cands})
         log.info("LCOLA: batch-fetching TLEs for %d unique objects…", len(all_nids))
+        _report_prep(f"批量获取 TLE 数据（{len(all_nids)} 个目标）…")
         tle_cache = _fetch_tle_batch(all_nids)
         log.info("LCOLA: %d TLEs retrieved", len(tle_cache))
 
@@ -397,6 +411,8 @@ class FlyThroughScreener:
         # t_abs_base + t_off.  Slicing pre_pos[round(t_off/DT) : ...] gives
         # the correct positions without any extra propagation.
         log.info("LCOLA: pre-propagating debris trajectories…")
+        total_precomp = sum(len(v) for v in phase_candidates.values())
+        _report_prep(f"预传播碎片轨迹（共 {total_precomp} 条）…")
         debris_precomp: Dict[Tuple[str, int], np.ndarray] = {}
         for phase in self.phases:
             cands = phase_candidates.get(phase.name, [])
@@ -405,7 +421,7 @@ class FlyThroughScreener:
             # Full window = window_open + phase_start … window_close + phase_end
             t_abs_s = window_open  + timedelta(seconds=phase.t_start_met)
             t_abs_e = window_close + timedelta(seconds=phase.t_end_met)
-            for norad_id, _ in cands:
+            for i_c, (norad_id, _) in enumerate(cands):
                 key = (phase.name, norad_id)
                 if key in debris_precomp:
                     continue
@@ -415,7 +431,11 @@ class FlyThroughScreener:
                 _, pos = _propagate_satrec(sat, t_abs_s, t_abs_e, dt_s=DT)
                 if pos is not None:
                     debris_precomp[key] = pos   # shape (N, 3)
+                # Report every 50 objects so the UI shows something is happening
+                if i_c % 50 == 0:
+                    _report_prep(f"预传播：{phase.name} {i_c}/{len(cands)} 目标")
         log.info("LCOLA: %d debris trajectories pre-computed", len(debris_precomp))
+        _report_prep(f"预处理完成，开始扫描 {n_total} 个发射时刻…")
 
         # ── Step 4: evaluate each launch time using cached data ───────────────
         phase_duration: Dict[str, float] = {
@@ -436,6 +456,10 @@ class FlyThroughScreener:
                 progress_cb(i_off + 1, n_total)
             log.debug("t_offset=%+.0fs  max_Pc=%.2e  blackout=%s",
                       dt_from_nominal, result.max_pc, result.is_blackout)
+
+        # ── optional demo threats ─────────────────────────────────────────────
+        if inject_demo:
+            self._inject_lcola_demo(report, nominal_launch, t_offsets, nominal_offset)
 
         # Top events across all launch times
         all_events = [ev for r in report.results for ev in r.events]
@@ -508,7 +532,7 @@ class FlyThroughScreener:
                 db_times = db_times_rel[:len(db_pos)]
 
                 try:
-                    enc = compute_encounter(
+                    enc = compute_encounter_fast(
                         rk_times, rk_pos, np.zeros_like(rk_pos),
                         db_times, db_pos, np.zeros_like(db_pos),
                         cov1_3x3=rk_cov,
@@ -522,11 +546,9 @@ class FlyThroughScreener:
 
                 n_eval += 1
 
-                if self.use_fast_pc:
-                    pc      = _chan_pc(enc.miss_xy_km, enc.cov_2x2, self.hbr_km)
-                    pc_err  = 0.0
-                else:
-                    pc, pc_err = _foster_pc(enc.miss_xy_km, enc.cov_2x2, self.hbr_km)
+                # Chan analytical Pc is fast and sufficient for window screening
+                pc     = _chan_pc(enc.miss_xy_km, enc.cov_2x2, self.hbr_km)
+                pc_err = 0.0
 
                 tca_dt = t_phase_start + timedelta(seconds=enc.tca_s)
                 is_bo  = (pc >= self.pc_threshold or
@@ -575,6 +597,65 @@ class FlyThroughScreener:
             cov3 = np.diag([sig**2, sig**2, sig**2])
 
         return times, pos, cov3
+
+    def _inject_lcola_demo(
+        self,
+        report: "ScreeningReport",
+        nominal_launch: datetime,
+        t_offsets: np.ndarray,
+        nominal_offset: float,
+    ) -> None:
+        """Inject synthetic blackout windows so the UI is exercised even with
+        a sparse debris catalog.  Demo events use negative NORAD IDs and are
+        clearly labelled with a 🧪 prefix."""
+        # Blackout region: a narrow band around T0 + [+3 min, +8 min]
+        _DEMO_EVENTS = [
+            ("PARKING_ORBIT",   280.0, 2.5, 1.2, 8.3, -1, "🧪 DEMO: CZ-3C DEB 2023-041C"),
+            ("POST_SEPARATION", 680.0, 1.0, 1.5, 7.0, -2, "🧪 DEMO: SL-16 R/B 2019-088B"),
+        ]
+        blackout_center_offset_s = 300.0   # T0 + 5 min
+        blackout_half_width_s    = 150.0   # ±2.5 min → 5 min blackout band
+
+        phase_names = {ph.name for ph in self.phases}
+
+        for res in report.results:
+            dt = res.t_launch_offset_s
+            in_blackout_band = abs(dt - (blackout_center_offset_s - nominal_offset)) \
+                               < blackout_half_width_s
+
+            if not in_blackout_band:
+                continue
+
+            for ph_name, met_off, miss_km, sigma_km, v_kms, nid, obj_name in _DEMO_EVENTS:
+                if ph_name not in phase_names:
+                    continue
+                if any(e.norad_cat_id == nid for e in res.events):
+                    continue
+
+                miss_xy = np.array([miss_km, 0.0])
+                cov_2x2 = np.diag([sigma_km**2, sigma_km**2])
+                pc = _chan_pc(miss_xy, cov_2x2, self.hbr_km)
+
+                tca_dt = res.launch_time + timedelta(seconds=met_off)
+                is_bo  = (pc >= self.pc_threshold or miss_km < MISS_ABSOLUTE_KM)
+
+                ev = ConjunctionEvent(
+                    t_launch_offset_s=dt,
+                    phase=ph_name,
+                    norad_cat_id=nid,
+                    object_name=obj_name,
+                    tca=tca_dt,
+                    miss_distance_km=miss_km,
+                    probability=pc,
+                    pc_error=0.0,
+                    v_rel_kms=v_kms,
+                    is_blackout=is_bo,
+                )
+                res.events.append(ev)
+                res.events.sort(key=lambda e: e.probability, reverse=True)
+                res.max_pc = max(res.max_pc, pc)
+                if is_bo:
+                    res.is_blackout = True
 
 
 # ─── single launch-time per-phase assessment ─────────────────────────────────
@@ -679,8 +760,7 @@ def assess_launch_phases(
 
             sat = tle_cache.get(norad_id)
             if sat is not None:
-                db_times, db_pos = _propagate_satrec(sat, t_start, t_end,
-                                                     dt_s=_PROPAGATION_DT_S)
+                db_times, db_pos = _propagate_satrec(sat, t_start, t_end, dt_s=30.0)
             else:
                 db_times, db_pos = _propagate_debris(norad_id, t_start, t_end)
 

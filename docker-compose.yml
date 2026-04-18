@@ -12,12 +12,12 @@ services:
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: lq3525926
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: space_debris
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d space_debris"]
       interval: 5s
@@ -36,7 +36,7 @@ services:
       DB_PORT: "5432"
       DB_NAME: space_debris
       DB_USER: postgres
-      DB_PASSWORD: lq3525926
+      DB_PASSWORD: postgres
     ports:
       # 显式绑定所有网卡，便于局域网/公网访问（勿写 127.0.0.1）
       - "0.0.0.0:8501:8501"
@@ -46,5 +46,4 @@ services:
     # Override for one-off: docker compose run --rm app python run.py ingest
     command: ["python", "run.py", "app", "--port", "8501"]
 
-volumes:
-  pgdata:
+# 数据库数据持久化在 ./pgdata 目录，删除该目录等同于清空数据库

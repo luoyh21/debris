@@ -26,13 +26,14 @@ _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 _FAVICON_PATH = os.path.join(_ASSETS_DIR, "favicon.svg")
 
 NAV_PAGES = [
-    ("overview", "系统概览", "overview"),
-    ("viz", "可视化探索", "viz"),
-    ("catalog", "目标目录", "catalog"),
-    ("sim", "轨迹仿真", "sim"),
-    ("lcola", "LCOLA 飞越筛选", "lcola"),
-    ("collision", "碰撞风险", "collision"),
-    ("ai", "AI 助手", "ai"),
+    ("overview",  "系统概览",       "overview"),
+    ("viz",       "可视化探索",     "viz"),
+    ("catalog",   "目标目录",       "catalog"),
+    ("sim",       "轨迹仿真",       "sim"),
+    ("lcola",     "LCOLA 飞越筛选", "lcola"),
+    ("collision", "碰撞风险",       "collision"),
+    ("longterm",  "长期风险评估",   "longterm"),
+    ("ai",        "AI 助手",        "ai"),
 ]
 
 
@@ -49,6 +50,7 @@ def _norad_display(nid) -> str:
     return str(n)
 
 
+
 class _LcolaProgress:
     """Thread-safe progress container for LCOLA background screening.
 
@@ -57,8 +59,13 @@ class _LcolaProgress:
     StreamlitAPIException outside a ScriptRunContext).
     The main thread (and @st.fragment) reads these attributes via
     st.session_state['_lcola_ps'].
+
+    Progress convention:
+      step < 0  → preparation phase (status_msg describes what's happening)
+      step ≥ 0  → scan phase (step / total launch-time slots evaluated)
     """
-    __slots__ = ('step', 'total', 'stop_req', 'done', 'error', 'report', 'start_time')
+    __slots__ = ('step', 'total', 'stop_req', 'done', 'error', 'report',
+                 'start_time', 'status_msg')
 
     def __init__(self, total: int):
         self.step       = 0
@@ -68,6 +75,7 @@ class _LcolaProgress:
         self.error      = None
         self.report     = None
         self.start_time = _time_mod.time()
+        self.status_msg = "初始化中…"
 
 st.set_page_config(
     page_title="空间碎片监测系统",
@@ -374,7 +382,7 @@ if "nav_page" not in st.session_state:
     st.session_state["nav_page"] = "overview"
 
 st.sidebar.markdown(sidebar_brand_row(), unsafe_allow_html=True)
-st.sidebar.markdown(SIDEBAR_NAV_BLUE_CSS, unsafe_allow_html=True)  # 全局 primary 蓝色主题
+st.sidebar.markdown(SIDEBAR_NAV_BLUE_CSS, unsafe_allow_html=True)  # 全局 primary 蓝色主题  # 全局 primary 蓝色主题
 st.sidebar.caption("功能导航")
 for _nav_key, _nav_label, _nav_icon in NAV_PAGES:
     _c_ic, _c_bt = st.sidebar.columns([0.14, 0.86])
@@ -399,7 +407,7 @@ page = st.session_state["nav_page"]
 
 st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.caption("数据来源：Space-Track.org")
+st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA")
 
 # Track current page in session_state so sidebar fragments can read it.
 # Also clear LCOLA done notification when user visits the LCOLA page.
@@ -457,11 +465,16 @@ with st.sidebar:
             ps: _LcolaProgress | None = st.session_state.get("_lcola_ps")
             if ps is None:
                 return
-            if ps.total > 0:
-                step    = ps.step
-                total   = ps.total
-                elapsed = _time_mod.time() - ps.start_time
-                eta_str = f" · 剩余≈{elapsed / step * (total - step):.0f}s" if step > 0 else ""
+            step    = ps.step
+            total   = ps.total
+            elapsed = _time_mod.time() - ps.start_time
+            status_msg = getattr(ps, "status_msg", "")
+            if step < 0:
+                # preparation phase — show descriptive text, not a raw negative index
+                sb_text = f"LCOLA 预处理中… {status_msg}"
+            elif total > 0:
+                eta_str = (f" · 剩余≈{elapsed / step * (total - step):.0f}s"
+                           if step > 0 else "")
                 sb_text = f"LCOLA 计算中 {step}/{total}{eta_str}"
             else:
                 sb_text = "LCOLA 正在后台计算…"
@@ -486,31 +499,48 @@ with st.sidebar:
 if page == "overview":
     st.markdown(title_row("overview", "空间环境概览"), unsafe_allow_html=True)
 
-    col1, col2, col3, col4 = st.columns(4)
+    def _overview_card(col, label: str, value, sub: str = "") -> None:
+        """Render a metric card via HTML so large numbers never get truncated."""
+        sub_h = (f"<div style='font-size:0.68em;color:#94A3B8;margin-top:3px'>{sub}</div>"
+                 if sub else "")
+        col.markdown(
+            f"<div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;"
+            f"padding:14px 10px;text-align:center'>"
+            f"<div style='font-size:0.78em;color:#475569;margin-bottom:6px'>{label}</div>"
+            f"<div style='font-size:1.45em;font-weight:700;color:#1E293B;"
+            f"word-break:break-all'>{value}</div>{sub_h}</div>",
+            unsafe_allow_html=True,
+        )
 
+    # Top-level metrics from unified view (ST + UCS + ESA)
     _stats_df = run_query("""
         SELECT
-            (SELECT COUNT(*)                                           FROM catalog_objects)                       AS total,
-            (SELECT COUNT(*) FROM catalog_objects WHERE object_type = 'DEBRIS')                                   AS debris,
-            (SELECT COUNT(*)                                           FROM trajectory_segments)                  AS segs,
-            (SELECT COUNT(*) FROM collision_risks  WHERE probability > 1e-6)                                     AS risks
+            COUNT(*)                                                     AS total,
+            SUM(CASE WHEN object_type = 'PAYLOAD'     THEN 1 ELSE 0 END) AS payloads,
+            SUM(CASE WHEN object_type = 'DEBRIS'      THEN 1 ELSE 0 END) AS debris,
+            SUM(CASE WHEN object_type = 'ROCKET BODY' THEN 1 ELSE 0 END) AS rockets,
+            COUNT(DISTINCT primary_source)                                AS n_sources
+        FROM v_unified_objects
     """)
+
+    c1, c2, c3, c4 = st.columns(4)
     if not _stats_df.empty:
         _s = _stats_df.iloc[0]
-        col1.metric("在轨目标总数",        int(_s["total"]))
-        col2.metric("空间碎片数量",        int(_s["debris"]))
-        col3.metric("轨迹片段总数",        f"{int(_s['segs']):,}")
-        col4.metric("高风险事件(Pc>1e-6)", int(_s["risks"]))
+        _overview_card(c1, "在轨目标总数", f"{int(_s['total']):,}",
+                       f"融合 {int(_s['n_sources'])} 个数据源")
+        _overview_card(c2, "有效载荷", f"{int(_s['payloads']):,}", "PAYLOAD")
+        _overview_card(c3, "空间碎片", f"{int(_s['debris']):,}", "DEBRIS")
+        _overview_card(c4, "火箭箭体", f"{int(_s['rockets']):,}", "ROCKET BODY")
     else:
-        for c in (col1, col2, col3, col4):
-            c.metric("–", "–")
+        for c in (c1, c2, c3, c4):
+            _overview_card(c, "–", "–")
 
     st.markdown("---")
 
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.markdown(section_title("chart_bar", "目标类型分布"), unsafe_allow_html=True)
+        st.markdown(section_title("chart_bar", "目标类型分布（多源融合）"), unsafe_allow_html=True)
         type_df = run_query("""
             SELECT
                 CASE object_type
@@ -520,7 +550,7 @@ if page == "overview":
                     ELSE '未知'
                 END AS 类型,
                 COUNT(*) AS 数量
-            FROM catalog_objects
+            FROM v_unified_objects
             GROUP BY object_type
             ORDER BY 数量 DESC
         """)
@@ -551,7 +581,6 @@ if page == "overview":
         fig_sma = _overview_log10_histogram(sma_df, "半长轴高度_km") if not sma_df.empty else None
         if fig_sma is not None:
             st.plotly_chart(fig_sma, use_container_width=True)
-            st.caption("说明：采用 log10 横轴，缓解长尾轨道导致的右侧留白问题。")
         else:
             st.info("暂无半长轴数据")
 
@@ -592,15 +621,57 @@ if page == "overview":
     else:
         st.info("暂无倾角数据")
 
-    st.markdown(section_title("globe_meridians", "主要国家在轨目标数量（Top 15）"), unsafe_allow_html=True)
+    # ── 历年航天发射趋势 ───────────────────────────────────────────────────────
+    st.markdown(section_title("rocket", "历年航天发射趋势（1957—今）"), unsafe_allow_html=True)
+    st.caption(
+        "数据来源：GCAT (McDowell) + UNOOSA + Space-Track 多源融合，"
+        "仅统计有效载荷（PAYLOAD）发射。Starlink 等巨型星座驱动 2020 年后跃升明显。"
+    )
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _load_launch_hist():
+        from streamlit_app.launch_trend import load_launch_history
+        return load_launch_history()
+
+    _lt = _load_launch_hist()
+    if _lt:
+        from streamlit_app.launch_trend import (
+            make_annual_launch_fig,
+            make_cumulative_fig,
+            make_decade_summary_fig,
+        )
+        _lt_col1, _lt_col2 = st.columns(2)
+        with _lt_col1:
+            st.markdown("##### 年代发射量汇总（1957—今）")
+            st.plotly_chart(
+                make_decade_summary_fig(_lt["annual_by_region"]),
+                use_container_width=True,
+            )
+        with _lt_col2:
+            st.markdown("##### 近年逐年发射量（2010—今）")
+            st.plotly_chart(
+                make_annual_launch_fig(_lt["annual_by_region"]),
+                use_container_width=True,
+            )
+
+        st.markdown("##### 在轨目标数量历史演化（按类型）")
+        st.plotly_chart(
+            make_cumulative_fig(_lt.get("cumulative", pd.DataFrame())),
+            use_container_width=True,
+        )
+    else:
+        st.info("暂无历史发射数据，请确认数据库已完成摄入。")
+
+    st.markdown(section_title("globe_meridians", "主要国家/地区在轨目标数量（Top 15）"), unsafe_allow_html=True)
     country_df = run_query("""
         SELECT
             country_code AS 国家代码,
             COUNT(*) AS 目标数量,
             SUM(CASE WHEN object_type='DEBRIS' THEN 1 ELSE 0 END) AS 碎片数,
-            SUM(CASE WHEN object_type='PAYLOAD' THEN 1 ELSE 0 END) AS 载荷数
-        FROM catalog_objects
-        WHERE country_code IS NOT NULL
+            SUM(CASE WHEN object_type='PAYLOAD' THEN 1 ELSE 0 END) AS 载荷数,
+            SUM(CASE WHEN object_type='ROCKET BODY' THEN 1 ELSE 0 END) AS 箭体数
+        FROM v_unified_objects
+        WHERE country_code IS NOT NULL AND country_code != ''
         GROUP BY country_code
         ORDER BY 目标数量 DESC
         LIMIT 15
@@ -608,21 +679,73 @@ if page == "overview":
     if not country_df.empty:
         st.dataframe(country_df, use_container_width=True)
 
-    st.markdown(section_title("download", "数据摄入状态"), unsafe_allow_html=True)
-    status_df = run_query("""
+    st.markdown(section_title("download", "多源数据摄入状态"), unsafe_allow_html=True)
+
+    # Main breakdown: by source × object type from unified view
+    _src_type_df = run_query("""
         SELECT
-            source AS 来源,
-            DATE(ingested_at) AS 日期,
-            COUNT(*) AS 记录数
-        FROM gp_elements
+            primary_source AS 数据源,
+            object_type    AS 目标类型,
+            COUNT(*)       AS 数量
+        FROM v_unified_objects
         GROUP BY 1, 2
-        ORDER BY 2 DESC
-        LIMIT 10
+        ORDER BY 1, 3 DESC
     """)
-    if not status_df.empty:
-        st.dataframe(status_df, use_container_width=True)
-    else:
-        st.info("暂无 GP 均根数记录")
+    _src_total_df = run_query("""
+        SELECT primary_source AS 数据源, COUNT(*) AS 合计
+        FROM v_unified_objects GROUP BY 1 ORDER BY 2 DESC
+    """)
+
+    if not _src_type_df.empty:
+        # Pivot: source as rows, object type as columns
+        _pivot = _src_type_df.pivot_table(
+            index="数据源", columns="目标类型", values="数量",
+            aggfunc="sum", fill_value=0,
+        ).reset_index()
+        _pivot.columns.name = None
+        # Add total column
+        type_cols = [c for c in _pivot.columns if c != "数据源"]
+        _pivot["合计"] = _pivot[type_cols].sum(axis=1)
+        # Reorder columns
+        desired_order = ["数据源", "PAYLOAD", "DEBRIS", "ROCKET BODY", "UNKNOWN", "合计"]
+        cols_final = [c for c in desired_order if c in _pivot.columns]
+        _pivot = _pivot[cols_final]
+        _rename = {"PAYLOAD": "有效载荷", "DEBRIS": "空间碎片",
+                   "ROCKET BODY": "火箭箭体", "UNKNOWN": "未知"}
+        _pivot = _pivot.rename(columns=_rename)
+        # Format numbers
+        for c in _pivot.columns:
+            if c != "数据源":
+                _pivot[c] = _pivot[c].apply(lambda x: f"{int(x):,}")
+        st.dataframe(_pivot, use_container_width=True, hide_index=True)
+
+        # Summary line
+        _total_obj = run_query("SELECT COUNT(*) AS n FROM v_unified_objects")
+        _n = int(_total_obj.iloc[0]["n"]) if not _total_obj.empty else 0
+        _n_src = _src_total_df["数据源"].nunique() if not _src_total_df.empty else 0
+        st.caption(f"融合 **{_n_src}** 个数据源 · 去重后共 **{_n:,}** 个空间目标")
+
+    # Supplementary: GCAT launch history + UNOOSA (aggregate stats, not objects)
+    with st.expander("补充统计数据源", expanded=False):
+        _aux_rows = []
+        _aux_tables = [
+            ("external_yearly_launches",        "GCAT 年度发射统计"),
+            ("external_cumulative_onorbit",     "GCAT 累计在轨统计"),
+            ("external_country_yearly_payload", "GCAT 国别载荷统计"),
+            ("external_unoosa_launches",        "UNOOSA 年度发射统计"),
+        ]
+        for tbl, label in _aux_tables:
+            try:
+                eq = run_query(f"SELECT COUNT(*) AS cnt FROM {tbl}")
+                if not eq.empty and int(eq.iloc[0]["cnt"]) > 0:
+                    _aux_rows.append((label, int(eq.iloc[0]["cnt"])))
+            except Exception:
+                pass
+        if _aux_rows:
+            _aux_df = pd.DataFrame(_aux_rows, columns=["数据源", "记录数"])
+            _aux_df["记录数"] = _aux_df["记录数"].apply(lambda x: f"{x:,}")
+            st.dataframe(_aux_df, use_container_width=True, hide_index=True)
+            st.caption("以上为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析。")
 
 # ------------------------------------------------------------------
 # 页面：可视化探索
@@ -635,7 +758,9 @@ elif page == "viz":
 # 页面：目标目录
 # ------------------------------------------------------------------
 elif page == "catalog":
-    st.markdown(title_row("catalog", "NORAD 目标目录"), unsafe_allow_html=True)
+    st.markdown(title_row("catalog", "空间目标统一目录"), unsafe_allow_html=True)
+    st.caption("融合 Space-Track、UCS Satellite Database、ESA DISCOS 三大数据源，"
+               "按 NORAD ID 去重后统一展示。")
 
     with st.expander("筛选条件", expanded=True):
         col1, col2, col3 = st.columns(3)
@@ -643,13 +768,21 @@ elif page == "catalog":
             "目标类型",
             ["全部", "DEBRIS（碎片）", "PAYLOAD（载荷）", "ROCKET BODY（箭体）", "UNKNOWN（未知）"]
         )
-        country = col2.text_input("国家代码（如 US、CN、RU）", "")
+        country = col2.text_input("国家代码（如 US、PRC、RU、CIS）", "",
+                                  help="CN/China → PRC，USA → US，USSR → CIS")
         name_search = col3.text_input("名称关键词", "")
 
         col4, col5, col6 = st.columns(3)
         perigee_min = col4.number_input("近地点下限 (km)", value=0, step=100)
         perigee_max = col5.number_input("近地点上限 (km)", value=50000, step=500)
         rcs_size = col6.selectbox("RCS 尺寸", ["全部", "SMALL", "MEDIUM", "LARGE"])
+
+        col7, col8 = st.columns(2)
+        primary_src = col7.selectbox("主数据源",
+                                     ["全部", "Space-Track", "UCS", "ESA-DISCOS"])
+        enrich_filter = col8.selectbox("数据enrichment",
+                                       ["全部", "含 UCS 数据", "含 ESA 数据",
+                                        "有用途信息", "有用户类型信息"])
 
     type_map = {
         "全部": None,
@@ -667,14 +800,34 @@ elif page == "catalog":
         where_clauses.append("object_type = :otype")
         params["otype"] = otype
     if country.strip():
+        _country_aliases = {
+            "CN": "PRC", "CHINA": "PRC", "中国": "PRC",
+            "USA": "US", "美国": "US",
+            "USSR": "CIS", "RUSSIA": "CIS", "俄罗斯": "CIS",
+            "JAPAN": "JPN", "日本": "JPN",
+            "INDIA": "IND", "印度": "IND",
+        }
+        _cc = country.strip().upper()
+        _cc = _country_aliases.get(_cc, _cc)
         where_clauses.append("country_code = :country")
-        params["country"] = country.strip().upper()
+        params["country"] = _cc
     if name_search.strip():
         where_clauses.append("name ILIKE :ns")
         params["ns"] = f"%{name_search.strip()}%"
     if rcs_size != "全部":
         where_clauses.append("rcs_size = :rcs")
         params["rcs"] = rcs_size
+    if primary_src != "全部":
+        where_clauses.append("primary_source = :psrc")
+        params["psrc"] = primary_src
+    if enrich_filter == "含 UCS 数据":
+        where_clauses.append("has_ucs = true")
+    elif enrich_filter == "含 ESA 数据":
+        where_clauses.append("has_esa = true")
+    elif enrich_filter == "有用途信息":
+        where_clauses.append("inferred_purpose IS NOT NULL")
+    elif enrich_filter == "有用户类型信息":
+        where_clauses.append("inferred_users IS NOT NULL")
 
     where_sql = " AND ".join(where_clauses)
     df = run_query(f"""
@@ -693,10 +846,20 @@ elif page == "catalog":
             ROUND(apogee_km::numeric, 1)  AS "远地点(km)",
             ROUND(inclination::numeric, 2) AS "倾角(°)",
             rcs_size       AS "RCS",
-            object_id      AS "国际编号"
-        FROM catalog_objects
+            primary_source AS "主数据源",
+            CASE WHEN has_ucs THEN '✓' ELSE '' END AS "UCS",
+            CASE WHEN has_esa THEN '✓' ELSE '' END AS "ESA",
+            inferred_purpose AS "用途",
+            inferred_users   AS "用户类型",
+            ucs_purpose    AS "用途(UCS原始)",
+            ucs_users      AS "用户(UCS原始)",
+            ROUND(esa_mass_kg::numeric, 2) AS "质量kg(ESA)",
+            ROUND(esa_cross_section_m2::numeric, 4) AS "截面m²(ESA)",
+            esa_mission    AS "任务(ESA)",
+            CASE esa_active WHEN true THEN '在轨' WHEN false THEN '已衰减' ELSE '' END AS "状态(ESA)"
+        FROM v_unified_objects
         WHERE {where_sql}
-        ORDER BY norad_cat_id
+        ORDER BY (name IS NOT NULL) DESC, launch_date DESC NULLS LAST, norad_cat_id DESC
         LIMIT 2000
     """, params)
 
@@ -726,7 +889,7 @@ elif page == "collision":
     st.caption(
         "轨迹来源：6-DOF 数值积分（trajectory/six_dof.py）｜"
         "算法：Foster (1992) 2-D Pc 数值积分｜"
-        "碎片来源：Space-Track GP 目录 + SGP4 传播"
+        "碎片来源：Space-Track + UCS + ESA DISCOS 多源统一目录 · SGP4 传播"
     )
 
     # ── 功能说明卡片 ────────────────────────────────────────────────────────
@@ -984,6 +1147,13 @@ elif page == "collision":
                 st.success("当前发射方案无禁发合取事件")
 
 # ------------------------------------------------------------------
+# 页面：长期任务碰撞风险评估
+# ------------------------------------------------------------------
+elif page == "longterm":
+    from streamlit_app.longterm_risk import render_longterm_risk
+    render_longterm_risk()
+
+# ------------------------------------------------------------------
 # 页面：AI 助手
 # ------------------------------------------------------------------
 elif page == "ai":
@@ -996,13 +1166,9 @@ elif page == "ai":
     )
 
     # ── MCP 工具文档面板 ──────────────────────────────────────────────
-    with st.expander("可用 MCP 工具（5 个）", expanded=False):
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            st.markdown("""
-**query_debris_in_region**
-
-在指定地理区域和高度范围内检索在轨空间目标。
+    with st.expander("可用 MCP 工具（6 个）", expanded=False):
+        st.markdown("""
+**1. query_debris_in_region** — 在指定地理区域和高度范围内检索在轨空间目标
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
@@ -1016,49 +1182,11 @@ elif page == "ai":
 | `hours` | 时间窗口长度（小时） | 6 |
 | `limit` | 最多返回目标数 | 50 |
 
-**示例：**
-> 「搜索文昌（19.61°N, 110.95°E）上空500km内、高度200~2000km的所有碎片」
+> 示例：「搜索文昌（19.61°N, 110.95°E）上空500km内、高度200~2000km的所有碎片」
 
 ---
 
-**get_debris_reentry_forecast**
-
-预报即将再入大气层的空间目标。查询 `catalog_objects` 中已有 `decay_date` 或近地点过低的目标。
-
-| 参数 | 说明 | 默认 |
-|------|------|------|
-| `days_ahead` | 预报窗口（天） | 30 |
-| `alt_max_km` | 无确认再入日期时近地点阈值（km） | 300 |
-| `object_type` | DEBRIS/PAYLOAD/ROCKET BODY/ALL | ALL |
-| `limit` | 最多返回目标数 | 50 |
-
-**返回：** NORAD ID、名称、类型、国家、确认再入日期、距今天数、轨道高度
-
-**示例：**
-> 「未来30天有哪些碎片预计再入大气层？」
-> 「近地点低于200km的待衰减碎片有哪些？」
-
----
-
-**get_object_tle**
-
-获取指定 NORAD 编号目标的最新 TLE 轨道根数，可用于外部 SGP4 传播计算。
-
-| 参数 | 说明 | 默认 |
-|------|------|------|
-| `norad_cat_id` | NORAD 目标编号（必填） | — |
-
-**返回：** TLE Line1/Line2、轨道历元、六根数（倾角/偏心率/平均运动/升交点赤经/近地点幅角/平近点角/B*阻力系数）
-
-**示例：**
-> 「给我 ISS（NORAD 25544）的 TLE 轨道根数」
-> 「获取 NORAD 12345 的最新轨道数据」
-""")
-        with col_t2:
-            st.markdown("""
-**predict_launch_collision_risk**
-
-对指定发射任务进行 6-DOF 仿真 + Foster Pc 碰撞风险评估。
+**2. predict_launch_collision_risk** — 对指定发射任务进行 6-DOF 仿真 + Foster Pc 碰撞风险评估
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
@@ -1070,16 +1198,34 @@ elif page == "ai":
 | `t_max_s` | 仿真时长（秒，600~7200） | 3600 |
 | `include_demo_threats` | 是否注入演示威胁 | true |
 
-**返回：** 各阶段风险等级（RED/AMBER/YELLOW/GREEN）、最高 Pc 合取事件列表、中文建议
-
-**示例：**
-> 「用长征五号B从文昌发射，方位角90°，预测明天06:00 UTC的碰撞风险」
+> 示例：「用长征五号B从文昌发射，方位角90°，预测明天06:00 UTC的碰撞风险」
 
 ---
 
-**query_debris_by_rcs**
+**3. get_debris_reentry_forecast** — 预报即将再入大气层的空间目标
 
-按雷达截面积（RCS）大小类别筛选空间目标，用于威胁辨别与目录完整性分析。
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `days_ahead` | 预报窗口（天） | 30 |
+| `alt_max_km` | 近地点阈值（km） | 300 |
+| `object_type` | DEBRIS/PAYLOAD/ROCKET BODY/ALL | ALL |
+| `limit` | 最多返回目标数 | 50 |
+
+> 示例：「未来30天有哪些碎片预计再入大气层？」
+
+---
+
+**4. get_object_tle** — 获取指定 NORAD 编号目标的最新 TLE 轨道根数
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `norad_cat_id` | NORAD 目标编号（必填） | — |
+
+> 示例：「给我 ISS（NORAD 25544）的 TLE 轨道根数」
+
+---
+
+**5. query_debris_by_rcs** — 按雷达截面积（RCS）大小类别筛选空间目标
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
@@ -1089,15 +1235,48 @@ elif page == "ai":
 | `object_type` | DEBRIS/PAYLOAD/ROCKET BODY/ALL | ALL |
 | `limit` | 最多返回目标数 | 50 |
 
-RCS 分级：
-- **SMALL** — < 0.1 m²，难以跟踪，位置不确定性大
-- **MEDIUM** — 0.1–1 m²
-- **LARGE** — > 1 m²，最易跟踪，碎裂后产碎片量最大
+> 示例：「LEO（200~2000km）中有多少 LARGE 级碎片？」
 
-**示例：**
-> 「LEO（200~2000km）中有多少 LARGE 级碎片？」
-> 「筛选 SMALL 级目标评估载人任务避撞窗口」
+---
+
+**6. forecast_conjunction_risk** — 长期任务寿命期碰撞风险预测（NASA ORDEM 3.1 + 泊松 MC）
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `alt_km` | 目标轨道高度（km） | 800 |
+| `inc_deg` | 轨道倾角（°） | 53.0 |
+| `mission_years` | 任务寿命年数 | 5 |
+| `conjunction_km` | 交会距离阈值（km） | 2 |
+| `sat_area_m2` | 卫星碰撞截面积（m²） | 10 |
+| `band_km` | 高度搜索带宽（km） | 200 |
+
+> 示例：「5年内会有多少次小于2km的接近？建议配备多少规避燃料？」
 """)
+
+    # ── CSS：修复聊天消息中 Markdown 表格重叠与滚动问题 ───────────────
+    st.markdown("""
+<style>
+/* 聊天消息内的 Markdown 表格：横向可滚动、防止溢出重叠 */
+[data-testid="stChatMessage"] table {
+    display: block !important;
+    overflow-x: auto !important;
+    max-width: 100% !important;
+    margin-bottom: 0.6em !important;
+    border-collapse: collapse !important;
+    position: relative !important;
+    z-index: 0 !important;
+}
+[data-testid="stChatMessage"] th,
+[data-testid="stChatMessage"] td {
+    white-space: nowrap !important;
+    padding: 4px 10px !important;
+    border: 1px solid #E2E8F0 !important;
+}
+[data-testid="stChatMessage"] {
+    overflow: visible !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
     # ── 示例问题快捷按钮 ─────────────────────────────────────────────
     st.markdown(section_title("idea", "示例问题", level=4, icon_size=18), unsafe_allow_html=True)
@@ -1115,18 +1294,19 @@ RCS 分级：
          "预测未来30天内有哪些空间目标即将再入大气层，列出确认再入日期和近地点高度"),
         ("获取 TLE",
          "获取国际空间站（ISS，NORAD 25544）的最新TLE轨道根数，列出六根数"),
-        ("大型碎片统计",
-         "统计LEO（200~2000km）中LARGE级别的碎片数量，列出近地点最低的前10个"),
+        ("长期接近预测",
+         "我计划在800km高度（倾角53°）运营一颗卫星，寿命5年，"
+         "预测5年内会有多少次小于2km的接近？聚合碰撞概率有多高？建议配备多少规避燃料？"),
     ]
     for i, (label, question) in enumerate(_examples):
         col = example_cols[i % 3]
         with col:
             if st.button(label, use_container_width=True, key=f"example_{i}"):
-                st.session_state["_prefill_question"] = question
+                st.session_state["_ai_draft"] = question
                 st.rerun()
 
-    # 处理示例按钮预填充
-    prefill = st.session_state.pop("_prefill_question", None)
+    # 处理待发送消息（来自"发送草稿"按钮）
+    pending_send = st.session_state.pop("_ai_send_pending", None)
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
@@ -1143,8 +1323,36 @@ RCS 分级：
             st.session_state.chat_history = []
             st.rerun()
 
-    # 输入框
-    user_input = st.chat_input("请输入您的问题…") or prefill
+    # 输入区：若有示例草稿则显示可编辑区域，否则显示 chat_input
+    _ai_draft = st.session_state.get("_ai_draft", "")
+    if _ai_draft:
+        st.caption("示例问题已填入，可在下方编辑后发送：")
+        edited_draft = st.text_area(
+            "问题内容", value=_ai_draft, height=90,
+            key="ai_draft_editor", label_visibility="collapsed",
+        )
+        # 使用 HTML 按钮行，避免 st.columns 在窄屏下换行
+        st.markdown("""
+<style>
+#ai-draft-btns { display:flex; gap:8px; margin-top:4px; }
+#ai-draft-btns button { white-space: nowrap !important; }
+</style>""", unsafe_allow_html=True)
+        col_send, col_cancel, col_pad = st.columns([2, 2, 10])
+        send_clicked   = col_send.button("发送", type="primary", key="ai_send_draft",
+                                         use_container_width=True)
+        cancel_clicked = col_cancel.button("清空", key="ai_cancel_draft",
+                                           use_container_width=True)
+        if send_clicked:
+            st.session_state["_ai_send_pending"] = edited_draft
+            st.session_state["_ai_draft"] = ""
+            st.rerun()
+        if cancel_clicked:
+            st.session_state["_ai_draft"] = ""
+            st.rerun()
+        user_input = None
+    else:
+        user_input = pending_send or st.chat_input("请输入您的问题…")
+
     if user_input:
         with st.chat_message("user"):
             st.markdown(user_input)
@@ -1161,6 +1369,11 @@ RCS 分级：
             st.markdown(reply)
 
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+        # 若消息来自草稿按钮（pending_send），本次渲染未生成 chat_input；
+        # 强制重新渲染，让 chat_input 出现，保证后续对话可继续。
+        if pending_send:
+            st.rerun()
 
 # ------------------------------------------------------------------
 # 页面：轨迹仿真（6-DOF）
@@ -1317,6 +1530,12 @@ elif page == "lcola":
                                    help="以标称发射时刻为中心，向前后各扩展 N 分钟")
         step_s = col4.number_input("筛选步长（秒）", value=60, step=30,
                                    help="相邻两个候选发射时刻之间的间隔。步长越小精度越高但耗时越长")
+        lcola_inject_demo = st.checkbox(
+            "注入演示威胁（Demo Threats）",
+            value=True,
+            help="在标称发射时刻附近注入合成禁发窗口（~5 分钟），用于演示 LCOLA 工作流。"
+                 "目录规模较小时推荐开启。",
+        )
 
     # ── 耗时估算 ────────────────────────────────────────────────────────────
     n_steps_est = int(win_m * 2 * 60 / max(step_s, 1)) + 1
@@ -1385,9 +1604,13 @@ elif page == "lcola":
         def _bg_screen():
             # NEVER write to st.session_state here — silently fails without ScriptRunContext.
             # Only mutate attributes of `ps` (captured from outer scope).
-            def _cb(step, total):
+            def _cb(step, total, msg=None):
                 ps.step  = step
                 ps.total = total
+                if msg is not None:
+                    ps.status_msg = msg
+                elif step >= 0:
+                    ps.status_msg = f"扫描发射时刻 {step}/{total}"
                 if ps.stop_req:
                     raise InterruptedError("用户取消")
             try:
@@ -1395,6 +1618,7 @@ elif page == "lcola":
                     w_open, w_close, t0,
                     step_s=float(step_s),
                     progress_cb=_cb,
+                    inject_demo=lcola_inject_demo,
                 )
                 ps.report = report
             except InterruptedError:
@@ -1437,17 +1661,23 @@ elif page == "lcola":
 
             # 每次进入页面都重绘进度条（离开再回来时 step 可能未变，不能跳过渲染）
             step, total = ps.step, (ps.total or n_steps_est)
+            status_msg = getattr(ps, "status_msg", "")
             st.session_state["_lcola_last_step"] = step
 
-            pct = min(step / max(total, 1), 0.99)
             elapsed = _time_mod.time() - ps.start_time
-            eta_s = f"  预计剩余 {elapsed / step * (total - step):.0f}s" if step > 0 else ""
-            st.progress(
-                pct,
-                text=f"飞越筛选中… {step}/{total} 个发射时刻 · 已用 {elapsed:.0f}s{eta_s}",
-            )
+            if step < 0:
+                # preparation phase (spatial filter / TLE fetch / pre-propagation)
+                pct = 0.02
+                eta_s = ""
+                prog_text = f"预处理中… {status_msg}  ·  已用 {elapsed:.0f}s"
+            else:
+                pct = min(step / max(total, 1), 0.99)
+                eta_s = (f"  预计剩余 {elapsed / step * (total - step):.0f}s"
+                         if step > 0 else "")
+                prog_text = f"飞越筛选中… {step}/{total} 个发射时刻 · 已用 {elapsed:.0f}s{eta_s}"
+            st.progress(pct, text=prog_text)
             st.info(
-                f"正在后台计算（{step}/{total}），可切换到其他页面，完成后右上角将弹窗通知。"
+                f"正在后台计算（{status_msg}），可切换到其他页面，完成后右上角将弹窗通知。"
             )
 
         _lcola_progress_fragment()

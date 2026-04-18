@@ -247,12 +247,155 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
   AND time_start < t_end AND time_end > t_start;
 ```
 
+## 已完成功能总览
+
+> 以下为系统已全面实现并部署的功能模块，涵盖数据采集、轨道力学仿真、碰撞风险评估、长期任务规划、AI 智能分析与多维度可视化。
+
+### 一、数据采集与多源融合
+
+| 数据源 | 类型 | 规模 | 说明 |
+|--------|------|------|------|
+| **Space-Track.org** | GP 均根数 / TLE | ~27,000 在轨目标 | 美国战略司令部（18 SDS）官方目录，含碎片、载荷、火箭箭体 |
+| **Jonathan McDowell GCAT** | 卫星目录 + 发射日志 | **68,690 条**（1957—2026） | 哈佛-史密松天体物理中心维护，全球最权威的发射历史日志，含部分不公开军事载荷修正数据 |
+| **UNOOSA / Our World in Data** | 年度发射统计 | **1,274 条**（116 国，1957—2025） | 联合国外层空间事务厅（UNOOSA）登记的各国年度发射数量，通过 OWID API 自动获取 |
+| **UCS Satellite Database** | 在轨卫星详情 | **7,560 条**（105 国） | 忧思科学家联盟维护，含卫星用途（军/民/商）、运营商、设计寿命、发射质量、轨道参数 |
+| **ESA DISCOS** | 欧空局空间物体数据库 | **10,000 条**（API 批量获取） | 欧洲空间局 DISCOSweb API，含物体质量、截面积、碎片数量、预测再入日期 |
+
+系统自动完成数据去重与清洗：
+- Space-Track 数据用于实时轨道传播（SGP4）和碰撞风险计算
+- GCAT 数据用于历史发射趋势统计、在轨目标演化分析，国家/地区按标准代码映射（US→美国、CIS/SU/RU→俄罗斯/苏联、PRC/CN→中国等 19 个国家）
+- 入库脚本 `scripts/ingest_external.py` 支持增量更新
+
+**数据库新增表**：
+
+| 表名 | 说明 |
+|------|------|
+| `external_yearly_launches` | GCAT 按年/国家/目标类型统计的发射量（1,392 行） |
+| `external_country_yearly_payload` | GCAT 按年/国家的有效载荷发射量（672 行） |
+| `external_cumulative_onorbit` | GCAT 逐年累计在轨数量（含发射-衰减差分，210 行） |
+| `external_onorbit_snapshot` | GCAT 当前在轨快照（44 行） |
+
+### 二、轨道力学仿真
+
+| 模块 | 方法 | 精度 |
+|------|------|------|
+| **6-DOF 弹道仿真** | ECEF 坐标系数值积分（RK45），J2 引力 + USSA-76 大气阻力 + 推力矢量（重力转弯） | rtol=1e-8, atol=1e-10 |
+| **SGP4 轨道传播** | 基于 GP/TLE 数据，python-sgp4 v2.25，批量传播 27,000+ 在轨目标 | 短期（<3天）误差 ~1 km |
+| **轨道预报可视化** | 用户选取目标 NORAD ID → 实时 SGP4 传播 → 3D 椭圆轨道渲染（颜色渐变标注时序） | 支持 OEM 导入/导出 |
+| **运载火箭预设** | CZ-5B（长征五号B）/ Falcon 9（猎鹰九号）/ Ariane 6（阿丽亚娜6号） | 各级推力、流量、质量参数 |
+
+### 三、碰撞风险评估体系
+
+#### 3.1 短期碰撞概率（LCOLA 飞越筛选）
+
+完整的 **Launch Collision Avoidance** 流水线：
+
+1. **PostGIS 空间预筛** — 200 km 包围盒 + GIST 索引快速候选筛选
+2. **SGP4 碎片传播** — 对候选碎片在发射窗口内逐秒传播
+3. **TCA 求解** — 线性插值 + 均匀网格扫描求最近接近时刻（`find_tca_fast`，8–15× 加速）
+4. **Foster (1992) 2-D Pc** — 遭遇平面双高斯数值积分，Chan (2003) 级数近似快速筛选
+5. **多时刻窗口扫描** — 滑动发射时刻，输出 Pc 曲线与禁射窗口
+
+风险等级：🔴 RED（Pc ≥ 10⁻⁵）· 🟠 AMBER（Pc ≥ 10⁻⁶，载人须关注）· 🟡 YELLOW（Pc ≥ 10⁻⁷）· 🟢 GREEN
+
+#### 3.2 长期任务碰撞风险评估
+
+基于 **NASA ORDEM 3.1 碎片通量模型** + **泊松蒙特卡洛**的工程级评估：
+
+$$P_c = 1 - \exp(-F \cdot A \cdot \Delta t)$$
+
+- **ORDEM 3.1 通量表**：覆盖 200–2000 km 高度，>10 cm 和 >1 cm 两挡碎片通量，倾角修正因子
+- **泊松蒙特卡洛**：n=2000 次试验，输出聚合碰撞概率 Pc_agg、交会次数分布（均值/P95）、最近逼近距离分布
+- **碎片年增长率**：简化 LEGEND 模型，按高度段差异化增长率预测
+- **可配置参数**：轨道高度、倾角、任务寿命（1–30年）、卫星面积、交会警戒距离、HBR、位置不确定度
+
+**输出指标**：
+- Pc（>10 cm 可追踪碎片）/ Pc（>1 cm 含不可追踪）
+- 年碰撞率
+- 交会次数（均值 / P95）
+- 最近逼近距离（中位 / P95）
+- 聚合碰撞概率 Pc_agg（蒙特卡洛聚合）
+- 数据库中最接近目标轨道的 30 颗碎片详情
+
+### 四、AI 智能分析助手
+
+Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
+
+| 工具 | 说明 |
+|------|------|
+| `query_debris_in_region` | 在指定地理区域和高度范围内检索在轨目标（PostGIS 空间索引） |
+| `predict_launch_collision_risk` | 6-DOF 仿真 + Foster Pc 逐阶段碰撞风险预测 |
+| `get_debris_reentry_forecast` | 预报即将再入大气层的空间目标 |
+| `get_object_tle` | 获取指定 NORAD 编号目标的最新 TLE 轨道根数 |
+| `query_debris_by_rcs` | 按雷达截面积（RCS）大小类别筛选空间目标 |
+| `forecast_conjunction_risk` | **长期任务碰撞风险预测**（ORDEM 3.1 + 泊松 MC），返回 Pc_agg、交会次数、建议规避燃料量 |
+
+**新增能力**：
+- 支持长周期问题——如"5年内会有多少次小于2km的接近？建议配备多少规避燃料？"
+- 强制工具调用规则：涉及长期风险、交会次数、Pc_agg 等问题时，Agent 自动调用 `forecast_conjunction_risk`，禁止以"缺少参数"拒绝
+- 示例问题点击后**填入编辑框**（而非直接发送），用户可修改后再提交
+- 聊天消息中的 Markdown 表格支持横向滚动，不再溢出重叠
+
+### 五、可视化探索平台
+
+8 个主页面 + 5 个可视化子标签：
+
+#### 主页面
+
+| 页面 | 功能亮点 |
+|------|----------|
+| **系统概览** | 在轨目标总数 / 碎片数量 / 轨迹片段总数（自定义 HTML 卡片防截断）；目标类型分布；半长轴高度分布（log10）；轨道层分布（LEO/MEO/GEO/HEO）；倾角分布；**历年航天发射趋势**（年代汇总 + 近年逐年 + 在轨演化）；主要国家 Top 15 |
+| **可视化探索** | 三维沉浸式 5 子标签平台（详见下方） |
+| **目标目录** | 可筛选数据库表 |
+| **轨迹仿真** | 6-DOF 运载火箭仿真，高度/速度/质量曲线 |
+| **LCOLA 飞越筛选** | 多发射时刻窗口扫描，Pc 曲线，禁射窗口，实时进度条（含预处理阶段详细状态） |
+| **碰撞风险** | 逐发射阶段 Foster Pc 评估 |
+| **长期风险评估** | ORDEM 3.1 + 泊松 MC，6 项指标卡片（3×2 布局），4 张分析图表，碎片环境详情 |
+| **AI 助手** | 6 个 MCP 工具，长期预测能力，可编辑示例问题 |
+
+#### 可视化探索 5 个子标签
+
+| 子标签 | 内容 |
+|--------|------|
+| **全球碎片态势** | pydeck 全球投影 + Plotly 高度分布（LEO / 全空间 log10） |
+| **高度分层下钻** | VLEO/LEO/MEO/GEO/HEO 五层 3D 地球+碎片点云，层内目标统计 |
+| **目标轨道预报** | 选取 NORAD ID → SGP4 传播 → 3D 轨道渲染（颜色渐变标注时序），OEM 导入/导出 |
+| **火箭发射碎片预警** | 6-DOF 仿真 → 时间轴拖动 → 实时查询附近碎片 → 3D 近场态势 |
+| **发射历史趋势分析** | 年代汇总堆叠柱状图、近年逐年发射量、分国别折线趋势、2020 后地区对比横向条形图、在轨目标历史演化曲线、关键里程碑时间轴 |
+
+### 六、数据安全
+
+- 数据库对 LLM 触发的 SQL 实施**只读保护**：关键字黑名单（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE）+ `SET TRANSACTION READ ONLY`
+- 禁止 SQL 注入：多语句拦截 + 参数化查询
+
+### 七、部署方式
+
+- **Docker Compose 一键部署**：`docker compose up -d`
+- PostgreSQL 15 + PostGIS（健康检查自动等待）
+- Streamlit 监听 `0.0.0.0:8501`，支持局域网访问
+
+---
+
+## 数据源接入状态
+
+| 数据源 | 状态 | 数据库表 | 说明 |
+|--------|------|----------|------|
+| **Space-Track.org** | ✅ 已接入 | `catalog_objects`, `gp_elements`, `trajectory_segments` | 自动拉取 + SGP4 传播 |
+| **Jonathan McDowell GCAT** | ✅ 已接入 | `external_yearly_launches`, `external_country_yearly_payload`, `external_cumulative_onorbit`, `external_onorbit_snapshot` | `scripts/ingest_external.py` |
+| **UNOOSA / Our World in Data** | ✅ 已接入 | `external_unoosa_launches` | 1,274 条，116 国，1957—2025 |
+| **UCS Satellite Database** | ✅ 已接入 | `external_ucs_satellites` | 7,560 条，105 国，含用途/运营商/寿命/质量 |
+| **ESA DISCOS** | ✅ 已接入 | `external_esa_discos` | 10,000 条，含质量/截面积/碎片数/预测再入 |
+
 ## 后续扩展方向
 
 - [ ] 接入 SGP4-XP 扩展摄动模型（更高精度，适合 >12h 预报）
-- [ ] 3D 轨道可视化（Cesium / deck.gl）
+- [x] 3D 轨道可视化（Plotly 3D scatter + 颜色渐变时序标注）
 - [ ] 实时 CDM 推送告警
-- [x] MCP 工具封装（`query_debris_in_region` + `predict_launch_collision_risk`）
+- [x] MCP 工具封装（6 个工具：区域搜索 / 发射风险 / 再入预报 / TLE 查询 / RCS 筛选 / 长期风险预测）
+- [x] ORDEM 3.1 长期任务碰撞风险评估
+- [x] 历年航天发射趋势（GCAT 68,690 条多源数据融合）
+- [x] AI Agent 长期预测能力（泊松统计工具 + 规避燃料估算）
 - [ ] 协方差矩阵接入（从 Space-Track CDM 获取真实误差椭球）
 - [ ] Alfano (2005) 短期遭遇精化方法
 - [ ] 定时自动重新摄入（cron / Airflow），保持轨迹段滚动更新
+- [x] 接入 UCS / UNOOSA / ESA 补充数据源（UNOOSA 1,274 条 + UCS 7,560 条 + ESA DISCOS 10,000 条）

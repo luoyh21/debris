@@ -719,6 +719,14 @@ def make_orbit_trace_fig(traces: dict) -> go.Figure:
     return fig
 
 
+# ─── Orbit propagation trace ───────────────────────────────────────────────────
+_TRACE_COLORS = [
+    "#FF6B6B", "#00CCFF", "#FFEE00", "#6BCB77", "#4D96FF",
+    "#FF9F45", "#C77DFF", "#FF87CA", "#A8E6CF", "#FFC93C",
+]
+
+
+
 def make_altitude_hist(
     df: pd.DataFrame,
     *,
@@ -1252,12 +1260,24 @@ def _render_global_view():
             return
 
         now_str = t_query.strftime("%Y-%m-%d %H:%M UTC")
-        st.caption(
-            f"显示 **{len(df):,}** 个目标（SGP4 递推） · {now_str}  ·  "
-            f"碎片 {(df['object_type']=='DEBRIS').sum():,}  "
-            f"载荷 {(df['object_type']=='PAYLOAD').sum():,}  "
-            f"火箭级 {(df['object_type']=='ROCKET BODY').sum():,}"
-        )
+        _actual = len(df)
+        _hit_limit = _actual >= n_limit
+        if _hit_limit:
+            st.caption(
+                f"显示 **{n_limit:,}** / 上限 {n_limit:,} 个目标 · SGP4 递推 · {now_str}  ·  "
+                f"碎片 {(df['object_type']=='DEBRIS').sum():,}  "
+                f"载荷 {(df['object_type']=='PAYLOAD').sum():,}  "
+                f"火箭级 {(df['object_type']=='ROCKET BODY').sum():,}  "
+                f"⚠️ 已达上限，可拖动滑块查看更多"
+            )
+        else:
+            st.caption(
+                f"显示 **{_actual:,}** / 上限 {n_limit:,} 个目标 · SGP4 递推 · {now_str}  ·  "
+                f"碎片 {(df['object_type']=='DEBRIS').sum():,}  "
+                f"载荷 {(df['object_type']=='PAYLOAD').sum():,}  "
+                f"火箭级 {(df['object_type']=='ROCKET BODY').sum():,}  "
+                f"（该范围共 {_actual:,} 个，未达上限）"
+            )
 
         if view_mode == _gv_ortho:
             fig_globe = make_globe_ortho(df)
@@ -1468,12 +1488,40 @@ def _render_layer_drilldown():
             )
 
 
-_OFP_PRESETS = {
-    "ISS + 碎片云":       "25544\n33751\n22675\n4632\n16609",
-    "GPS 星座样本":       "24876\n25933\n26360\n27663\n28474",
-    "Cosmos-2251 碎片群": "\n".join(str(i) for i in range(33751, 33771)),  # 20 objects
-}
-_OFP_DEFAULT = "25544\n49445\n43013\n20580"
+def _ofp_build_presets():
+    """Build presets from whatever is actually in the database."""
+    from database.db import session_scope as _scope
+    from sqlalchemy import text as _text
+    try:
+        with _scope() as sess:
+            rows = sess.execute(_text("""
+                SELECT g.norad_cat_id, co.name, co.object_type
+                FROM gp_elements g
+                JOIN catalog_objects co ON co.norad_cat_id = g.norad_cat_id
+                ORDER BY g.norad_cat_id LIMIT 5000
+            """)).fetchall()
+    except Exception:
+        return {}, "5\n11\n22\n29\n340"
+    payloads = [r for r in rows if r[2] == "PAYLOAD"]
+    debris = [r for r in rows if r[2] == "DEBRIS"]
+    rockets = [r for r in rows if r[2] == "ROCKET BODY"]
+    presets = {}
+    if payloads:
+        sample = payloads[:5]
+        presets["经典卫星"] = "\n".join(str(r[0]) for r in sample)
+    if debris:
+        sample = debris[:5]
+        presets["碎片样本"] = "\n".join(str(r[0]) for r in sample)
+    if payloads and debris:
+        mixed = payloads[:3] + debris[:2]
+        presets["混合 (载荷+碎片)"] = "\n".join(str(r[0]) for r in mixed)
+    default = "\n".join(str(r[0]) for r in (payloads or rows)[:4])
+    return presets, default
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _ofp_cached_presets():
+    return _ofp_build_presets()
 
 
 # ─── OEM helpers ──────────────────────────────────────────────────────────────
@@ -1569,6 +1617,10 @@ def _oem_bytes_to_traces(raw: bytes) -> dict:
     return traces
 
 
+# ─── OEM helpers ──────────────────────────────────────────────────────────────
+
+
+
 def _render_orbit_forecast():
     """Tab: select objects by NORAD ID → SGP4-propagate N orbits → 3D Earth + orbit traces."""
     # ── Apply any preset that was chosen in the PREVIOUS run ─────────────────
@@ -1576,6 +1628,8 @@ def _render_orbit_forecast():
     if "_ofp_preset_pending" in st.session_state:
         st.session_state["ofp_nids"] = st.session_state.pop("_ofp_preset_pending")
         st.session_state.pop("orbit_forecast_data", None)
+
+    _OFP_PRESETS, _OFP_DEFAULT = _ofp_cached_presets()
 
     st.caption(
         "输入 NORAD ID，SGP4 传播 N 圈，在三维地球上查看真实轨迹形状"
@@ -1590,7 +1644,6 @@ def _render_orbit_forecast():
             value=_OFP_DEFAULT,
             height=130,
             key="ofp_nids",
-            help="ISS=25544  Hubble=20580  Starlink=49445",
         )
         n_orbits = st.slider("预报圈数", 0.5, 6.0, 1.5, 0.5, key="ofp_n")
         btn = st.button("开始预报", type="primary", key="ofp_run", use_container_width=True)
@@ -1990,6 +2043,189 @@ def _render_mission_slider():
         st.info(f"T+{t_slider}s 附近 {rad:.0f} km 内暂无目标（超出 DB 覆盖窗口或高度过低）。")
 
 
+# ─── Tab 5: 发射趋势 ──────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_lt_cached():
+    from streamlit_app.launch_trend import load_launch_history
+    return load_launch_history()
+
+
+def _render_launch_trend():
+    """Historical launch trend visualization tab."""
+    import pandas as pd
+    from streamlit_app.launch_trend import (
+        make_annual_launch_fig,
+        make_cumulative_fig,
+        make_country_trend_fig,
+        make_decade_summary_fig,
+        make_recent_country_bar,
+        make_unoosa_comparison_fig,
+        make_ucs_purpose_fig,
+        make_ucs_users_fig,
+        make_ucs_orbit_fig,
+    )
+
+    st.caption(
+        "融合 GCAT（McDowell）、UNOOSA、UCS、ESA DISCOS 等多源数据，"
+        "展示 1957 年至今的航天发射统计与在轨卫星分析。"
+    )
+
+    lt = _load_lt_cached()
+    if not lt:
+        st.warning("暂无历史数据，请先运行数据摄入。")
+        return
+
+    by_region = lt.get("annual_by_region", pd.DataFrame())
+    cumulative = lt.get("cumulative", pd.DataFrame())
+
+    # ── 顶部 KPI ──────────────────────────────────────────────────────────────
+    if not by_region.empty:
+        total_all = int(by_region["n"].sum())
+        current_yr = pd.Timestamp.now().year
+        this_yr = int(by_region[by_region["yr"] == current_yr]["n"].sum())
+        prev_yr = int(by_region[by_region["yr"] == current_yr - 1]["n"].sum())
+        top_country = by_region.groupby("region")["n"].sum().idxmax()
+
+        k1, k2, k3, k4 = st.columns(4)
+
+        def _kcard(col, label, val, sub=""):
+            sub_h = f"<div style='font-size:0.72em;color:#94A3B8;margin-top:2px'>{sub}</div>" if sub else ""
+            col.markdown(
+                f"<div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;"
+                f"padding:12px 10px;text-align:center'>"
+                f"<div style='font-size:0.76em;color:#475569;margin-bottom:4px'>{label}</div>"
+                f"<div style='font-size:1.3em;font-weight:700;color:#1E293B'>{val}</div>{sub_h}</div>",
+                unsafe_allow_html=True,
+            )
+
+        _kcard(k1, "历史发射总量", f"{total_all:,}颗", "有效载荷 · 1957—今")
+        _kcard(k2, f"{current_yr} 年发射量", f"{this_yr:,}颗", "仅统计已入库数据")
+        _kcard(k3, f"{current_yr-1} 年发射量", f"{prev_yr:,}颗", "完整年份数据")
+        _kcard(k4, "最大发射国/地区", top_country, "历史累计")
+
+    st.markdown("---")
+
+    # ── 年代汇总 + 近年逐年 ────────────────────────────────────────────────────
+    col_dec, col_yr = st.columns(2)
+    with col_dec:
+        st.markdown(section_title("chart_bar", "年代发射量汇总（1957—今）",
+                                  level=4, icon_size=18), unsafe_allow_html=True)
+        if not by_region.empty:
+            fig_dec = make_decade_summary_fig(by_region)
+            st.plotly_chart(fig_dec, use_container_width=True)
+
+    with col_yr:
+        st.markdown(section_title("chart_bar", "近年逐年载荷发射量（2010—今）",
+                                  level=4, icon_size=18), unsafe_allow_html=True)
+        if not by_region.empty:
+            fig_ann = make_annual_launch_fig(by_region)
+            st.plotly_chart(fig_ann, use_container_width=True)
+
+    # ── 近年折线 + 地区对比 ──────────────────────────────────────────────────
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.markdown(section_title("chart_line", "近年分国别发射趋势（2000—今）",
+                                  level=4, icon_size=18), unsafe_allow_html=True)
+        if not by_region.empty:
+            fig_trend = make_country_trend_fig(by_region, start_year=2000)
+            st.plotly_chart(fig_trend, use_container_width=True)
+
+    with col_right:
+        st.markdown(section_title("chart_bar", "2020 年后各地区发射量对比",
+                                  level=4, icon_size=18), unsafe_allow_html=True)
+        if not by_region.empty:
+            fig_recent = make_recent_country_bar(by_region, start_year=2020)
+            st.plotly_chart(fig_recent, use_container_width=True)
+
+    # ── 在轨目标历史演化 ──────────────────────────────────────────────────────
+    st.markdown(section_title("layers", "在轨目标数量历史演化（按类型累计）",
+                              level=4, icon_size=18), unsafe_allow_html=True)
+    if not cumulative.empty:
+        fig_cum = make_cumulative_fig(cumulative)
+        st.plotly_chart(fig_cum, use_container_width=True)
+
+    # ── UNOOSA 交叉验证 + UCS 卫星用途 ────────────────────────────────────────
+    unoosa_world = lt.get("unoosa_world", pd.DataFrame())
+    ucs = lt.get("ucs", pd.DataFrame())
+
+    has_extra = (not unoosa_world.empty) or (not ucs.empty)
+    if has_extra:
+        st.markdown("---")
+        st.markdown(section_title("chart_line", "多源数据分析",
+                                  level=4, icon_size=18), unsafe_allow_html=True)
+
+    if not unoosa_world.empty and not by_region.empty:
+        col_cmp, col_note = st.columns([2, 1])
+        with col_cmp:
+            st.markdown("**GCAT vs UNOOSA 年度发射量对比**")
+            fig_cmp = make_unoosa_comparison_fig(by_region, unoosa_world)
+            st.plotly_chart(fig_cmp, use_container_width=True)
+        with col_note:
+            st.info(
+                "GCAT 统计有效载荷（PAYLOAD），UNOOSA 统计所有已登记发射物体"
+                "（含碎片、箭体），因此 UNOOSA 数字通常更高。"
+                "两条曲线形态一致说明数据趋势可靠。"
+            )
+
+    if not ucs.empty:
+        _ucs_total = len(ucs)
+        st.markdown("---")
+        st.markdown(section_title("chart_bar", f"UCS 在轨卫星分析（{_ucs_total:,} 颗）",
+                                  level=4, icon_size=18), unsafe_allow_html=True)
+
+        st.markdown("**卫星用途分布**")
+        fig_p = make_ucs_purpose_fig(ucs)
+        st.plotly_chart(fig_p, use_container_width=True)
+
+        st.markdown("**轨道类别分布**")
+        fig_o = make_ucs_orbit_fig(ucs)
+        st.plotly_chart(fig_o, use_container_width=True)
+
+        st.markdown("**军/民/商属性**")
+        fig_u = make_ucs_users_fig(ucs)
+        st.plotly_chart(fig_u, use_container_width=True)
+
+        # Top countries as pie chart — merge <2% into "其他"
+        _all_counts = ucs["country"].value_counts()
+        _grand = int(_all_counts.sum())
+        _pie_labels, _pie_values, _other_sum = [], [], 0
+        for lbl, cnt in _all_counts.items():
+            if int(cnt) / _grand >= 0.02:
+                _pie_labels.append(str(lbl))
+                _pie_values.append(int(cnt))
+            else:
+                _other_sum += int(cnt)
+        if _other_sum > 0:
+            _pie_labels.append("其他")
+            _pie_values.append(_other_sum)
+        st.markdown("**主要运营国/地区卫星数量**")
+        _ctotal = sum(_pie_values)
+        _cpos = ["outside" if v / _ctotal < 0.05 else "inside" for v in _pie_values]
+        _fig_country = go.Figure(go.Pie(
+            labels=_pie_labels,
+            values=_pie_values,
+            hole=0.4,
+            sort=False,
+            textinfo="label+value+percent",
+            textfont=dict(size=12),
+            textposition=_cpos,
+            insidetextorientation="horizontal",
+            marker=dict(colors=[
+                "#3B82F6", "#EF4444", "#F59E0B", "#10B981", "#8B5CF6",
+                "#EC4899", "#06B6D4", "#F97316", "#6366F1", "#84CC16", "#94A3B8",
+            ]),
+        ))
+        _fig_country.update_layout(
+            template="plotly_white", height=380,
+            margin=dict(t=10, b=30, l=60, r=60),
+            showlegend=False,
+        )
+        st.plotly_chart(_fig_country, use_container_width=True)
+
+
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 def render_viz_explorer():
     st.markdown(title_row("viz", "空间碎片可视化探索"), unsafe_allow_html=True)
@@ -2016,13 +2252,14 @@ def render_viz_explorer():
         st.session_state.viz_sub_idx = 0
 
     _viz_tabs = [
-        ("overview", "全球碎片\n态势"),
-        ("layers",   "高度分层\n下钻"),
-        ("orbit",    "目标轨道\n预报"),
-        ("timeline", "火箭发射\n碎片预警"),
+        ("overview",  "全球碎片\n态势"),
+        ("layers",    "高度分层\n下钻"),
+        ("orbit",     "目标轨道\n预报"),
+        ("timeline",  "火箭发射\n碎片预警"),
+        ("rocket",    "发射历史\n趋势分析"),
     ]
-    tc1, tc2, tc3, tc4 = st.columns([1, 1, 1, 1], gap="small")
-    for col, i, (icon_id, label) in zip((tc1, tc2, tc3, tc4), range(4), _viz_tabs):
+
+    def _render_tab_btn(col, i, icon_id, label):
         with col:
             ic_col, btn_col = st.columns([0.15, 0.85], gap="small")
             with ic_col:
@@ -2044,6 +2281,15 @@ def render_viz_explorer():
                         st.session_state.viz_sub_idx = i
                         st.rerun()
 
+    # Row 1: first 3 tabs
+    _row1 = st.columns(3, gap="small")
+    for col, i in zip(_row1, range(3)):
+        _render_tab_btn(col, i, _viz_tabs[i][0], _viz_tabs[i][1])
+    # Row 2: last 2 tabs, centered via padding columns
+    _pad, _c3, _c4, _pad2 = st.columns([0.5, 1, 1, 0.5], gap="small")
+    _render_tab_btn(_c3, 3, _viz_tabs[3][0], _viz_tabs[3][1])
+    _render_tab_btn(_c4, 4, _viz_tabs[4][0], _viz_tabs[4][1])
+
     st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
     _idx = int(st.session_state.viz_sub_idx)
     if _idx == 0:
@@ -2052,5 +2298,7 @@ def render_viz_explorer():
         _render_layer_drilldown()
     elif _idx == 2:
         _render_orbit_forecast()
-    else:
+    elif _idx == 3:
         _render_mission_slider()
+    else:
+        _render_launch_trend()

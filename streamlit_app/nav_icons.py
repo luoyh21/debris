@@ -55,6 +55,11 @@ _ICONS: dict[str, str] = {
         '<circle cx="9" cy="12" r="4"/><circle cx="15" cy="12" r="4"/>'
         '<path d="M11 10l6 4M17 10l-6 4"/>'
     ),
+    "longterm": _svg(
+        '<circle cx="12" cy="12" r="9"/>'
+        '<path d="M12 6v6l4 2"/>'
+        '<path d="M5.5 18.5l1.5-1.5M17 7l1.5-1.5M18.5 18.5L17 17M7 7L5.5 5.5"/>'
+    ),
     "ai": _svg(
         '<rect x="5" y="7" width="14" height="10" rx="2"/>'
         '<path d="M9 7V5M15 7V5M9 17v2M15 17v2"/>'
@@ -194,9 +199,8 @@ def section_title(icon_name: str, text: str, *, level: int = 3, icon_size: int =
     ic = icon_inline(icon_name, size=icon_size)
     return (
         f'<{tag} style="display:flex;align-items:center;gap:10px;font-size:{sz};'
-        'font-weight:600;color:#0f172a;margin:0.85em 0 0.45em 0;'
-        'line-height:1.15;flex-wrap:nowrap;white-space:nowrap">'
-        f"{ic}<span style=\"white-space:nowrap\">{text}</span></{tag}>"
+        'font-weight:600;color:#0f172a;margin:0.85em 0 0.45em 0">'
+        f"{ic}<span>{text}</span></{tag}>"
     )
 
 
