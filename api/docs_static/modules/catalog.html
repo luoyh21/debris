@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>目标目录 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog" class="active">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>目标目录</h1>
+<p><span class="tag tag-scene">场景</span> 查找特定的空间目标，或按条件批量筛选感兴趣的目标群体。</p>
+<p>目标目录是系统的核心数据浏览界面，融合了 Space-Track、UCS 和 ESA DISCOS 三大数据源的信息，按 NORAD ID 去重后统一展示。支持多维度筛选和关键词搜索，最多可一次显示 2,000 条记录。</p>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「目标目录」</strong></li>
+  <li>在页面顶部的 <strong>「筛选条件」</strong> 展开面板中设置搜索条件</li>
+  <li>条件设置后，结果表格将自动刷新</li>
+  <li>在结果表格中浏览数据，可点击列标题进行排序</li>
+</ol>
+
+<h2 id="filter">搜索功能</h2>
+
+<div class="feature">
+  <h4>🔍 多维度搜索</h4>
+  <span class="tag tag-action">搜索</span>
+  <p style="margin-top:10px">系统支持多种搜索方式，可单独使用也可组合使用：</p>
+  <table>
+    <tr><th>搜索方式</th><th>说明</th><th>示例</th></tr>
+    <tr><td><strong>名称关键词</strong></td><td>模糊匹配目标名称（不区分大小写）</td><td>输入 <code>STARLINK</code> 搜索所有 Starlink 卫星</td></tr>
+    <tr><td><strong>国家代码</strong></td><td>精确匹配国家/地区代码</td><td><code>PRC</code>、<code>US</code>、<code>CIS</code></td></tr>
+    <tr><td><strong>近地点范围</strong></td><td>按近地点高度范围筛选</td><td>200–600 km 查看 LEO 目标</td></tr>
+  </table>
+</div>
+
+<div class="info-box">
+  💡 <strong>国家代码别名支持：</strong>输入 <code>CN</code>、<code>China</code> 或 <code>中国</code> 均可自动转换为 <code>PRC</code>；<code>USA</code> 或 <code>美国</code> 自动转换为 <code>US</code>；<code>USSR</code>、<code>Russia</code> 或 <code>俄罗斯</code> 自动转换为 <code>CIS</code>。
+</div>
+
+<h2>筛选条件</h2>
+<table>
+  <tr><th>筛选项</th><th>选项</th><th>说明</th></tr>
+  <tr><td><strong>目标类型</strong></td><td>全部 / DEBRIS / PAYLOAD / ROCKET BODY / UNKNOWN</td><td>按空间目标分类筛选</td></tr>
+  <tr><td><strong>国家代码</strong></td><td>自由输入</td><td>如 US, PRC, CIS, JPN, IND</td></tr>
+  <tr><td><strong>名称关键词</strong></td><td>自由输入</td><td>模糊搜索，如 ISS, COSMOS</td></tr>
+  <tr><td><strong>近地点下限</strong></td><td>数值 (km)</td><td>默认 0</td></tr>
+  <tr><td><strong>近地点上限</strong></td><td>数值 (km)</td><td>默认 50,000</td></tr>
+  <tr><td><strong>RCS 尺寸</strong></td><td>全部 / SMALL / MEDIUM / LARGE</td><td>雷达截面积分类</td></tr>
+  <tr><td><strong>主数据源</strong></td><td>全部 / Space-Track / UCS / ESA-DISCOS</td><td>按主要数据来源筛选</td></tr>
+  <tr><td><strong>数据 Enrichment</strong></td><td>全部 / 含 UCS 数据 / 含 ESA 数据 / 有用途信息 / 有用户类型信息</td><td>按附加数据标记筛选</td></tr>
+</table>
+
+<h2 id="detail">数据列说明</h2>
+<table>
+  <tr><th>列名</th><th>数据来源</th><th>含义</th></tr>
+  <tr><td><strong>NORAD ID</strong></td><td>Space-Track</td><td>北美防空司令部 5 位编号，全球唯一标识</td></tr>
+  <tr><td><strong>名称</strong></td><td>Space-Track</td><td>目标官方名称（部分碎片可能无名称）</td></tr>
+  <tr><td><strong>类型</strong></td><td>Space-Track</td><td>碎片 / 载荷 / 箭体（已翻译为中文）</td></tr>
+  <tr><td><strong>国家</strong></td><td>Space-Track</td><td>目标所属国家/地区代码</td></tr>
+  <tr><td><strong>发射日期</strong></td><td>Space-Track</td><td>目标进入太空的日期</td></tr>
+  <tr><td><strong>近地点 (km)</strong></td><td>Space-Track</td><td>轨道最低点与地表的距离</td></tr>
+  <tr><td><strong>远地点 (km)</strong></td><td>Space-Track</td><td>轨道最高点与地表的距离</td></tr>
+  <tr><td><strong>倾角 (°)</strong></td><td>Space-Track</td><td>轨道面与赤道面的夹角</td></tr>
+  <tr><td><strong>RCS</strong></td><td>Space-Track</td><td>雷达截面积类别：SMALL(&lt;0.1m²) / MEDIUM(0.1–1m²) / LARGE(&gt;1m²)</td></tr>
+  <tr><td><strong>主数据源</strong></td><td>系统融合</td><td>该条记录来自哪个主数据源</td></tr>
+  <tr><td><strong>UCS</strong></td><td>UCS</td><td>✓ 表示该目标在 UCS 数据库中有匹配记录</td></tr>
+  <tr><td><strong>ESA</strong></td><td>ESA DISCOS</td><td>✓ 表示该目标在 ESA DISCOS 中有匹配记录</td></tr>
+  <tr><td><strong>用途</strong></td><td>UCS / 推断</td><td>卫星用途（通信/遥感/导航/科研等）</td></tr>
+  <tr><td><strong>用户类型</strong></td><td>UCS / 推断</td><td>军用 / 民用 / 商用 / 政府</td></tr>
+  <tr><td><strong>用途(UCS 原始)</strong></td><td>UCS</td><td>UCS 数据库中的原始用途描述</td></tr>
+  <tr><td><strong>用户(UCS 原始)</strong></td><td>UCS</td><td>UCS 数据库中的原始用户类型</td></tr>
+  <tr><td><strong>质量 kg(ESA)</strong></td><td>ESA DISCOS</td><td>ESA 提供的目标质量估计</td></tr>
+  <tr><td><strong>截面 m²(ESA)</strong></td><td>ESA DISCOS</td><td>ESA 提供的碰撞截面积估计</td></tr>
+  <tr><td><strong>任务(ESA)</strong></td><td>ESA DISCOS</td><td>ESA 记录的任务名称</td></tr>
+  <tr><td><strong>状态(ESA)</strong></td><td>ESA DISCOS</td><td>在轨 / 已衰减</td></tr>
+</table>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>结果表格最多显示 2,000 条记录。如果需要处理更大量级的数据，建议使用筛选条件缩小范围，或通过 <a href="/docs/api">API 接口</a> 编程获取数据。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

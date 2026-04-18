@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 智能助手 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai" class="active">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>AI 智能助手</h1>
+<p><span class="tag tag-scene">场景</span> 用自然语言提出空间碎片相关的分析问题，AI 助手自动选择合适的分析工具，执行计算并返回结构化结果。无需手动切换页面或填写参数。</p>
+<p>AI 助手集成了系统的 6 个核心分析工具，通过 MCP（模型上下文协议）协议实现自然语言到工具调用的自动转换。您只需用日常语言描述需求，助手会自动判断该调用哪个工具、传递什么参数。</p>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「AI 助手」</strong></li>
+  <li>在页面底部的输入框中输入您的问题（中文或英文均可）</li>
+  <li>或者点击页面顶部的<strong>示例问题按钮</strong>，快速填入预设问题</li>
+  <li>如果使用示例按钮，可在文本框中编辑后再点击「发送」</li>
+  <li>等待 AI 思考和工具调用完成，查看返回的结构化结果</li>
+  <li>可以继续追问，AI 会记住对话上下文</li>
+</ol>
+
+<h2 id="tools">可用分析工具</h2>
+
+<div class="cards">
+  <div class="card">
+    <h4>区域碎片查询</h4>
+    <p>搜索指定坐标和高度范围内的在轨空间目标。支持指定时间窗口和目标类型。</p>
+  </div>
+  <div class="card">
+    <h4>发射碰撞风险预测</h4>
+    <p>模拟火箭发射并评估各飞行阶段的碰撞风险。返回风险等级和规避建议。</p>
+  </div>
+  <div class="card">
+    <h4>再入预报</h4>
+    <p>预测即将再入大气层的空间目标，基于 decay 日期和近地点高度。</p>
+  </div>
+  <div class="card">
+    <h4>TLE 查询</h4>
+    <p>根据 NORAD 编号获取目标的最新 TLE 轨道根数和轨道参数。</p>
+  </div>
+  <div class="card">
+    <h4>RCS 筛选</h4>
+    <p>按雷达截面积类别（SMALL/MEDIUM/LARGE）筛选特定高度范围内的空间目标。</p>
+  </div>
+  <div class="card">
+    <h4>长期碰撞风险预测</h4>
+    <p>评估卫星任务寿命期内的累积碰撞概率、规避燃料预算。</p>
+  </div>
+</div>
+
+<h2 id="examples">示例对话</h2>
+
+<div class="feature">
+  <h4>💬 示例 1：区域碎片查询</h4>
+  <span class="tag tag-action">问题</span>
+  <p style="margin-top:8px"><em>「搜索文昌发射场（19.61°N, 110.95°E）上空 500km 范围内、高度 200~2000km 的碎片，列出前 20 个」</em></p>
+  <span class="tag tag-output">预期输出</span>
+  <p style="margin-top:8px">AI 会调用区域碎片查询工具，返回该区域内检索到的目标数量，以及每个目标的 NORAD ID、名称、类型、近地点/远地点、与中心的距离等详细信息。</p>
+</div>
+
+<div class="feature">
+  <h4>💬 示例 2：发射风险预测</h4>
+  <span class="tag tag-action">问题</span>
+  <p style="margin-top:8px"><em>「用长征五号B从文昌（纬度 19.61°，经度 110.95°）向正东方向发射，预测明天 06:00 UTC 发射的各阶段碰撞风险，给出风险等级和建议」</em></p>
+  <span class="tag tag-output">预期输出</span>
+  <p style="margin-top:8px">AI 会运行完整的 6-DOF 仿真 + Foster Pc 评估流程，返回各飞行阶段（上升段/停泊轨道/变轨推进/分离后）的风险等级、最大 Pc 值、TOP 合取事件列表和中文规避建议。</p>
+</div>
+
+<div class="feature">
+  <h4>💬 示例 3：轨道统计分析</h4>
+  <span class="tag tag-action">问题</span>
+  <p style="margin-top:8px"><em>「统计低地球轨道（perigee_km 200~2000km）内各类型目标数量，按 object_type 分组并列出代表性目标名称各 3 个」</em></p>
+  <span class="tag tag-output">预期输出</span>
+  <p style="margin-top:8px">AI 会结合区域查询和 RCS 筛选工具，提供分类统计和代表性目标名单。</p>
+</div>
+
+<div class="feature">
+  <h4>💬 示例 4：再入预报</h4>
+  <span class="tag tag-action">问题</span>
+  <p style="margin-top:8px"><em>「预测未来 30 天内有哪些空间目标即将再入大气层，列出确认再入日期和近地点高度」</em></p>
+  <span class="tag tag-output">预期输出</span>
+  <p style="margin-top:8px">返回即将再入的目标列表，包括 NORAD ID、名称、预计再入日期、距离再入的天数、近地点高度等。</p>
+</div>
+
+<div class="feature">
+  <h4>💬 示例 5：获取 TLE</h4>
+  <span class="tag tag-action">问题</span>
+  <p style="margin-top:8px"><em>「获取国际空间站（ISS，NORAD 25544）的最新 TLE 轨道根数，列出六根数」</em></p>
+  <span class="tag tag-output">预期输出</span>
+  <p style="margin-top:8px">返回 ISS 的两行根数 (TLE) 原文和解析后的六个经典轨道根数（倾角、偏心率、升交点赤经、近地点幅角、平近点角、平均运动）。</p>
+</div>
+
+<div class="feature">
+  <h4>💬 示例 6：长期风险评估</h4>
+  <span class="tag tag-action">问题</span>
+  <p style="margin-top:8px"><em>「我计划在 800km 高度（倾角 53°）运营一颗卫星，寿命 5 年，预测 5 年内会有多少次小于 2km 的接近？累积碰撞概率有多高？建议配备多少规避燃料？」</em></p>
+  <span class="tag tag-output">预期输出</span>
+  <p style="margin-top:8px">返回年碰撞率、5 年累积碰撞概率、预期接近次数、建议规避 ΔV 和推进剂质量预算。</p>
+</div>
+
+<h2>使用技巧</h2>
+
+<div class="feature">
+  <h4>🎯 提高回答质量的方法</h4>
+  <ul>
+    <li><strong>提供具体参数：</strong>尽量给出明确的数值（坐标、高度范围、NORAD ID），避免模糊描述</li>
+    <li><strong>说明期望输出：</strong>告诉 AI 您想要什么格式的结果（如「列出前 10 个」「按 Pc 排序」）</li>
+    <li><strong>分步提问：</strong>复杂问题可以拆分为多步，AI 会记住上下文</li>
+    <li><strong>使用示例按钮：</strong>页面顶部的 6 个示例问题覆盖了最常用场景，可作为模板修改</li>
+    <li><strong>中英文均可：</strong>参数名和技术术语中英文混合也能正确理解</li>
+  </ul>
+</div>
+
+<div class="info-box">
+  💡 <strong>清除对话：</strong>如果对话历史过长或想重新开始，点击对话区域下方的「清除对话历史」按钮。AI 最多保留最近 10 轮对话作为上下文。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

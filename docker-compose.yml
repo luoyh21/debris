@@ -18,11 +18,12 @@ services:
       - "5432:5432"
     volumes:
       - ./pgdata:/var/lib/postgresql/data
+      - ./scripts/ensure_db.sh:/docker-entrypoint-initdb.d/ensure_db.sh
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d space_debris"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d space_debris || (PGPASSWORD=postgres psql -U postgres -c \"SELECT 1 FROM pg_database WHERE datname='space_debris'\" | grep -q 1 || PGPASSWORD=postgres psql -U postgres -c \"CREATE DATABASE space_debris;\") && pg_isready -U postgres -d space_debris"]
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 15
       start_period: 15s
 
   app:
@@ -45,5 +46,23 @@ services:
         condition: service_healthy
     # Override for one-off: docker compose run --rm app python run.py ingest
     command: ["python", "run.py", "app", "--port", "8501"]
+
+  api:
+    restart: unless-stopped
+    build: .
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: space_debris
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "0.0.0.0:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "run.py", "api", "--port", "8000"]
 
 # 数据库数据持久化在 ./pgdata 目录，删除该目录等同于清空数据库

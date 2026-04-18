@@ -406,6 +406,36 @@ for _nav_key, _nav_label, _nav_icon in NAV_PAGES:
 page = st.session_state["nav_page"]
 
 st.sidebar.markdown("---")
+try:
+    _host_header = st.context.headers.get("Host", "")
+    _api_host = _host_header.split(":")[0] if _host_header else "localhost"
+except Exception:
+    _api_host = "localhost"
+_docs_url = f"http://{_api_host}:8000/docs"
+_docs_ic, _docs_bt = st.sidebar.columns([0.14, 0.86])
+with _docs_ic:
+    _docs_svg = icon_inline("docs", 20).replace('stroke="#1e3a5f"', 'stroke="#2C84BC"')
+    st.markdown(
+        f'<div style="padding-top:10px">{_docs_svg}</div>',
+        unsafe_allow_html=True,
+    )
+with _docs_bt:
+    st.markdown(
+        f'<a href="{_docs_url}" target="_blank" style="'
+        'display:flex;align-items:center;justify-content:center;'
+        'padding:0.3rem 0.75rem;margin:4px 0;'
+        'border:1px solid #2C84BC;border-radius:0.5rem;'
+        'font-size:0.875rem;font-weight:400;color:#ffffff;'
+        'text-decoration:none;background:#2C84BC;cursor:pointer;'
+        'min-height:2.5rem;line-height:1.6;width:100%;'
+        'font-family:Source Sans Pro,sans-serif;'
+        'transition:background .15s,border-color .15s"'
+        ' onmouseover="this.style.background=\'#24709e\';this.style.borderColor=\'#24709e\'"'
+        ' onmouseout="this.style.background=\'#2C84BC\';this.style.borderColor=\'#2C84BC\'"'
+        '>系统说明文档</a>',
+        unsafe_allow_html=True,
+    )
+st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
 st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA")
 

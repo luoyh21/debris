@@ -371,8 +371,12 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 ### 七、部署方式
 
 - **Docker Compose 一键部署**：`docker compose up -d`
-- PostgreSQL 15 + PostGIS（健康检查自动等待）
-- Streamlit 监听 `0.0.0.0:8501`，支持局域网访问
+- 包含三个服务：`db`（PostgreSQL 15 + PostGIS）、`app`（Streamlit 前端，端口 8501）、`api`（REST API + 文档，端口 8000）
+- PostgreSQL 数据持久化于本地 `./pgdata` 目录
+- 健康检查自动等待数据库就绪后再启动前后端服务
+- Streamlit 监听 `0.0.0.0:8501`，API 监听 `0.0.0.0:8000`，支持局域网访问
+- 系统说明文档：`http://<host>:8000/docs`
+- REST API Swagger：`http://<host>:8000/api/docs`
 
 ---
 
@@ -385,6 +389,222 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 | **UNOOSA / Our World in Data** | ✅ 已接入 | `external_unoosa_launches` | 1,274 条，116 国，1957—2025 |
 | **UCS Satellite Database** | ✅ 已接入 | `external_ucs_satellites` | 7,560 条，105 国，含用途/运营商/寿命/质量 |
 | **ESA DISCOS** | ✅ 已接入 | `external_esa_discos` | 10,000 条，含质量/截面积/碎片数/预测再入 |
+
+## Windows 本地部署（无 Docker）
+
+> 以下步骤适用于 Windows 10/11，在 **PowerShell** 中执行。  
+> 全程不需要 Docker，数据库和虚拟环境都位于项目目录内。
+
+### 前置条件
+
+| 软件 | 版本 | 下载地址 |
+|------|------|----------|
+| **Python** | 3.10 – 3.12 | https://www.python.org/downloads/ （安装时勾选 **Add to PATH**） |
+| **PostgreSQL + PostGIS** | PG 15/16 + PostGIS 3.4 | https://www.enterprisedb.com/downloads/postgres-postgresql-downloads （安装时用 Stack Builder 勾选 PostGIS） |
+| **Git** | 任意 | https://git-scm.com/download/win |
+
+> PostgreSQL 安装时设置的超级用户密码需要记住（下文假设为 `postgres`）。
+
+### Step 1：克隆仓库
+
+```powershell
+git clone https://github.com/<your-org>/space-debris-monitor.git
+cd space-debris-monitor
+```
+
+### Step 2：创建 Python 虚拟环境（位于项目目录内）
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+> 如果 `pip install psycopg2-binary` 失败，可尝试 `pip install psycopg2` 或从 https://www.lfd.uci.edu/~gohlke/pythonlibs/ 下载对应 wheel。
+
+### Step 3：配置 `.env`
+
+在项目根目录创建 `.env` 文件（可复制 `.env` 模板后修改）：
+
+```env
+# Space-Track 账号（免费注册 https://www.space-track.org/auth/createAccount）
+SPACETRACK_USERNAME=your@email.com
+SPACETRACK_PASSWORD=your_password
+
+# OpenAI / LLM（AI 助手功能需要，不需要可留空）
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4.1-mini
+
+# 数据库（与 PostgreSQL 安装时设置一致）
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=space_debris
+DB_USER=postgres
+DB_PASSWORD=postgres
+
+# 传播参数
+SEGMENT_MINUTES=10
+PROPAGATION_HORIZON_DAYS=3
+
+# ESA DISCOS API（可选，用于获取物体质量/截面积数据）
+# 在 https://discosweb.esoc.esa.int/ 注册后获取
+ESA_DISCOS_TOKEN=
+```
+
+### Step 4：创建数据库
+
+打开 **pgAdmin** 或 **psql**（位于 PostgreSQL 安装目录的 bin 下）：
+
+```powershell
+# 方法一：用 psql（需要将 PostgreSQL\bin 加入 PATH）
+psql -U postgres -c "CREATE DATABASE space_debris;"
+psql -U postgres -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+# 方法二：在 pgAdmin 图形界面中
+# 右键 Databases → Create → Database → 名称填 space_debris
+# 然后在 space_debris 上右键 → Query Tool → 执行：CREATE EXTENSION IF NOT EXISTS postgis;
+```
+
+### Step 5：初始化数据库表结构
+
+```powershell
+python run.py init-db
+```
+
+### Step 6：拉取全量数据（5 个数据源）
+
+数据摄入分两步，可在不同终端窗口中并行执行：
+
+**终端 1 — Space-Track（核心数据，约 30–90 分钟）：**
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python run.py ingest
+```
+
+> 首次运行需要从 Space-Track.org 下载约 29,000 条在轨目标数据，含 SGP4 轨道传播和轨迹段写入。  
+> 如想快速验证，可先 `python run.py ingest --limit 1000` 只拉 1000 条。
+
+**终端 2 — 外部数据源（GCAT + UNOOSA + UCS + ESA DISCOS）：**
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python scripts/ingest_external.py
+```
+
+> 此命令依次拉取 4 个外部数据源：
+> - **GCAT**（Jonathan McDowell 发射日志）— 从本地 `data/external/jm_satcat.tsv` 导入
+> - **UNOOSA**（联合国发射统计）— 从 API 自动下载
+> - **UCS**（在轨卫星数据库）— 从本地 `data/external/ucs_satellites.xlsx` 导入
+> - **ESA DISCOS**（欧空局物体数据库）— 从 API 获取（需要 `ESA_DISCOS_TOKEN`），约 20 分钟
+
+也可单独运行某个数据源：
+
+```powershell
+python scripts/ingest_external.py --ucs       # 仅 UCS
+python scripts/ingest_external.py --esa       # 仅 ESA DISCOS
+python scripts/ingest_external.py --unoosa    # 仅 UNOOSA
+python scripts/ingest_external.py --gcat      # 仅 GCAT
+```
+
+### Step 7：创建统一视图
+
+数据摄入完成后，创建多源数据统一视图：
+
+```powershell
+python scripts/create_unified_view.py
+```
+
+> 此步骤将 Space-Track、UCS、ESA DISCOS 三库数据去重合并为 `v_unified_objects` 物化视图，  
+> 同时通过 COSPAR 编号交叉比对为 ESA 记录推断国家代码，通过名称模式和 ESA mission 推断卫星用途。
+
+### Step 8：启动系统
+
+需要同时启动 **前端**（Streamlit）和 **API/文档服务**（FastAPI），建议使用两个终端：
+
+**终端 A — Streamlit 前端：**
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python run.py app --port 8501
+```
+
+**终端 B — API & 文档服务：**
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python run.py api --port 8000
+```
+
+浏览器访问：
+- **http://localhost:8501** — 系统主界面（Streamlit 仪表盘）
+- **http://localhost:8000/docs** — 系统说明文档
+- **http://localhost:8000/api/docs** — REST API Swagger 交互文档
+
+### 需要补充的文件
+
+以下文件包含敏感信息或大文件，不在 Git 仓库中，需手动准备：
+
+| 文件 | 说明 | 获取方式 |
+|------|------|----------|
+| `.env` | 配置文件（API 密钥等） | 按 Step 3 模板创建 |
+| `data/external/ucs_satellites.xlsx` | UCS 卫星数据库 | 从 https://www.ucsusa.org/nuclear-weapons/space-weapons/satellite-database 下载 |
+| `data/external/jm_satcat.tsv` | GCAT 卫星目录 | 从 https://planet4589.org/space/gcat/tsv/cat/satcat.tsv 下载 |
+| `data/external/jm_launch.tsv` | GCAT 发射日志 | 从 https://planet4589.org/space/gcat/tsv/launch/launch.tsv 下载 |
+
+> `data/external/` 目录如不存在需手动创建：`mkdir data\external`
+
+### 完整命令汇总（一键复制）
+
+```powershell
+# 1. 克隆 & 进入目录
+git clone https://github.com/<your-org>/space-debris-monitor.git
+cd space-debris-monitor
+
+# 2. 创建虚拟环境
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 3. 创建 .env（手动编辑填入你的 API 密钥）
+
+# 4. 创建数据库
+psql -U postgres -c "CREATE DATABASE space_debris;"
+psql -U postgres -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+# 5. 初始化表结构
+python run.py init-db
+
+# 6. 拉取数据（两个终端并行）
+python run.py ingest                        # 终端 1：Space-Track
+python scripts/ingest_external.py           # 终端 2：GCAT+UNOOSA+UCS+ESA
+
+# 7. 创建统一视图
+python scripts/create_unified_view.py
+
+# 8. 启动前端 + API 服务（两个终端）
+python run.py app --port 8501               # 终端 A：Streamlit 前端 → http://localhost:8501
+python run.py api --port 8000               # 终端 B：API + 文档 → http://localhost:8000/docs
+```
+
+### 常见问题
+
+| 问题 | 解决方法 |
+|------|----------|
+| `psycopg2` 安装失败 | 改用 `pip install psycopg2-binary`，或安装 Visual C++ Build Tools |
+| `CREATE EXTENSION postgis` 失败 | PostgreSQL 安装时需通过 Stack Builder 额外安装 PostGIS |
+| Space-Track 登录失败 | 确认 `.env` 中账号密码正确，需在 space-track.org 注册 |
+| `rocketpy` 安装慢或失败 | `pip install rocketpy --no-build-isolation`，需要已安装 numpy |
+| 端口 5432 被占用 | 检查是否已有 PostgreSQL 服务在运行，或改 `.env` 中的 `DB_PORT` |
+| ESA DISCOS 返回 401 | 在 discosweb.esoc.esa.int 注册获取 Token 填入 `.env` |
+| 页面显示"暂无数据" | 检查 Step 6 数据摄入是否完成，Step 7 统一视图是否已创建 |
+| 侧边栏"系统说明文档"打不开 | 确认 API 服务已启动（Step 8 终端 B），检查端口 8000 是否可访问 |
+
+---
 
 ## 后续扩展方向
 

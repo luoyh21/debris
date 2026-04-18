@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>系统统计 API · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub active">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>系统概况统计</h1>
+
+<div class="endpoint">
+  <span class="method method-get">GET</span>
+  <span class="path">/api/v1/stats</span>
+</div>
+
+<p><span class="tag tag-scene">适用场景</span> 快速获取系统数据库的概况信息——目标总数、各类型分布、GP 元素和轨迹段的入库数量。适用于健康检查、监控面板集成或数据摄入状态确认。</p>
+
+<h2>请求参数</h2>
+<p>此接口无需任何参数，直接发送 GET 请求即可。</p>
+
+<h2>响应字段</h2>
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>catalog_total</code></td><td>int</td><td>目标目录 (catalog_objects) 中的总记录数</td></tr>
+  <tr><td><code>by_type</code></td><td>object</td><td>按目标类型分组的数量。键为类型名称，值为数量</td></tr>
+  <tr><td><code>by_type.DEBRIS</code></td><td>int</td><td>碎片数量</td></tr>
+  <tr><td><code>by_type.PAYLOAD</code></td><td>int</td><td>有效载荷数量</td></tr>
+  <tr><td><code>by_type["ROCKET BODY"]</code></td><td>int</td><td>火箭箭体数量</td></tr>
+  <tr><td><code>by_type.UNKNOWN</code></td><td>int</td><td>未知类型数量</td></tr>
+  <tr><td><code>gp_elements_count</code></td><td>int</td><td>GP 轨道根数 (gp_elements) 表的总记录数</td></tr>
+  <tr><td><code>trajectory_segments_count</code></td><td>int</td><td>轨迹段 (trajectory_segments) 表的总记录数</td></tr>
+</table>
+
+<h2>curl 示例</h2>
+<pre><code>curl http://&lt;your-host&gt;:8000/api/v1/stats</code></pre>
+
+<h2>响应示例</h2>
+<pre><code>{
+  "catalog_total": 62417,
+  "by_type": {
+    "DEBRIS": 32156,
+    "PAYLOAD": 15289,
+    "ROCKET BODY": 4127,
+    "UNKNOWN": 10845
+  },
+  "gp_elements_count": 58932,
+  "trajectory_segments_count": 245678
+}</code></pre>
+
+<h2>结果解读</h2>
+
+<div class="feature">
+  <h4>📊 关键指标含义</h4>
+  <table>
+    <tr><th>指标</th><th>正常范围</th><th>异常说明</th></tr>
+    <tr><td><code>catalog_total</code></td><td>40,000–70,000</td><td>如果为 0，说明尚未完成 Space-Track 数据摄入</td></tr>
+    <tr><td><code>gp_elements_count</code></td><td>应接近 catalog_total</td><td>如果远小于 catalog_total，说明 GP 数据摄入不完整</td></tr>
+    <tr><td><code>trajectory_segments_count</code></td><td>&gt; 0</td><td>如果为 0，区域碎片查询将退化为慢速的 SGP4 模式</td></tr>
+    <tr><td><code>by_type.DEBRIS</code></td><td>通常占总数 &gt; 40%</td><td>碎片是最大的目标类别</td></tr>
+  </table>
+</div>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>此接口可用于自动化监控脚本。例如定期检查 <code>catalog_total</code> 是否增长，确认数据摄入流程正常运行。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

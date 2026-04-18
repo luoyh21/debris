@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>搜索 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+<h1 id="search-title">搜索文档</h1>
+<input class="search-results-input" id="searchInput" type="text" placeholder="输入关键词后按 Enter 搜索..." autofocus>
+<div id="results"></div>
+</div>
+
+<script src="/docs/toc.js"></script>
+<script>
+(function () {
+  var PAGES = [
+    { url: '/docs', title: '功能总览' },
+    { url: '/docs/datasources', title: '数据来源与覆盖' },
+    { url: '/docs/modules/overview', title: '系统概览面板' },
+    { url: '/docs/modules/visualization', title: '可视化探索' },
+    { url: '/docs/modules/catalog', title: '目标目录' },
+    { url: '/docs/modules/simulation', title: '轨迹仿真' },
+    { url: '/docs/modules/lcola', title: 'LCOLA 飞越筛选' },
+    { url: '/docs/modules/collision', title: '碰撞风险评估' },
+    { url: '/docs/modules/longterm', title: '长期风险评估' },
+    { url: '/docs/modules/ai', title: 'AI 助手' },
+    { url: '/docs/api', title: 'API 使用指南' },
+    { url: '/docs/api/region', title: 'API · 区域碎片查询' },
+    { url: '/docs/api/launch-risk', title: 'API · 发射碰撞风险' },
+    { url: '/docs/api/reentry', title: 'API · 再入预报' },
+    { url: '/docs/api/tle', title: 'API · TLE 查询' },
+    { url: '/docs/api/rcs', title: 'API · RCS 筛选' },
+    { url: '/docs/api/stats', title: 'API · 系统统计' }
+  ];
+
+  var indexCache = null;
+  var input = document.getElementById('searchInput');
+  var resultsDiv = document.getElementById('results');
+  var titleEl = document.getElementById('search-title');
+
+  var params = new URLSearchParams(location.search);
+  var initQ = params.get('q') || '';
+  if (initQ) { input.value = initQ; }
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var q = input.value.trim();
+      if (q) {
+        history.replaceState(null, '', '/docs/search?q=' + encodeURIComponent(q));
+        doSearch(q);
+      }
+    }
+  });
+
+  function buildIndex() {
+    if (indexCache) return Promise.resolve(indexCache);
+    var fetches = PAGES.map(function (p) {
+      return fetch(p.url).then(function (r) { return r.text(); }).then(function (html) {
+        return { page: p, html: html };
+      }).catch(function () { return null; });
+    });
+    return Promise.all(fetches).then(function (results) {
+      var idx = [];
+      results.forEach(function (r) {
+        if (!r) return;
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(r.html, 'text/html');
+        var main = doc.querySelector('.main');
+        if (!main) return;
+
+        var sections = [];
+        var curHeading = null;
+        var curId = '';
+        var curText = '';
+
+        var nodes = main.querySelectorAll('h1, h2, h3, p, li, td, code');
+        nodes.forEach(function (n) {
+          var tag = n.tagName;
+          if (tag === 'H1' || tag === 'H2' || tag === 'H3') {
+            if (curHeading) {
+              sections.push({ heading: curHeading, id: curId, text: curText });
+            }
+            curHeading = n.textContent.trim();
+            curId = n.id || '';
+            curText = '';
+          } else {
+            curText += ' ' + n.textContent.trim();
+          }
+        });
+        if (curHeading) {
+          sections.push({ heading: curHeading, id: curId, text: curText });
+        }
+
+        sections.forEach(function (s) {
+          idx.push({
+            pageUrl: r.page.url,
+            pageTitle: r.page.title,
+            heading: s.heading,
+            anchor: s.id,
+            text: s.text
+          });
+        });
+      });
+      indexCache = idx;
+      return idx;
+    });
+  }
+
+  function doSearch(query) {
+    titleEl.textContent = '搜索：' + query;
+    resultsDiv.innerHTML = '<p class="search-empty">正在搜索...</p>';
+
+    buildIndex().then(function (idx) {
+      var q = query.toLowerCase();
+      var matches = [];
+      idx.forEach(function (item) {
+        var full = (item.heading + ' ' + item.text).toLowerCase();
+        var pos = full.indexOf(q);
+        if (pos === -1) return;
+
+        var textFull = item.heading + ' ' + item.text;
+        var matchStart = pos;
+        var snippetStart = Math.max(0, matchStart - 40);
+        var snippetEnd = Math.min(textFull.length, matchStart + q.length + 80);
+        var raw = textFull.substring(snippetStart, snippetEnd);
+        if (snippetStart > 0) raw = '...' + raw;
+        if (snippetEnd < textFull.length) raw = raw + '...';
+
+        var escaped = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        var re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+        var highlighted = escaped.replace(re, '<mark>$1</mark>');
+
+        matches.push({
+          pageTitle: item.pageTitle,
+          heading: item.heading,
+          url: item.pageUrl + (item.anchor ? '#' + item.anchor : ''),
+          snippet: highlighted
+        });
+      });
+
+      if (matches.length === 0) {
+        resultsDiv.innerHTML = '<p class="search-empty">未找到与「' +
+          query.replace(/</g, '&lt;') + '」相关的结果</p>';
+        return;
+      }
+
+      var html = '<p style="color:var(--text-secondary);margin-bottom:20px">找到 ' +
+        matches.length + ' 个结果</p>';
+      matches.forEach(function (m) {
+        html += '<div class="search-result">' +
+          '<div class="search-result-page">' + m.pageTitle + '</div>' +
+          '<a href="' + m.url + '">' + m.heading.replace(/</g, '&lt;') + '</a>' +
+          '<div class="snippet">' + m.snippet + '</div>' +
+          '</div>';
+      });
+      resultsDiv.innerHTML = html;
+    });
+  }
+
+  if (initQ) doSearch(initQ);
+})();
+</script>
+</body>
+</html>

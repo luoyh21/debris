@@ -205,8 +205,6 @@ def cmd_lcola(args):
 
 def cmd_app(args):
     app_path = os.path.join(os.path.dirname(__file__), "streamlit_app", "app.py")
-    # Release 行为主要由 .streamlit/config.toml 与 STREAMLIT_* 环境变量控制；
-    # 此处仅压低日志级别，避免无效 CLI 选项在不同版本上报错。
     subprocess.run(
         [sys.executable, "-m", "streamlit", "run", app_path,
          "--server.port", str(args.port),
@@ -215,6 +213,13 @@ def cmd_app(args):
          "--logger.level", "warning"],
         check=True,
     )
+
+
+def cmd_api(args):
+    """Launch FastAPI documentation & REST API server."""
+    import uvicorn
+    uvicorn.run("api.main:app", host="0.0.0.0", port=args.port,
+                log_level="info", reload=False)
 
 
 def main():
@@ -268,6 +273,10 @@ def main():
     p_app = sub.add_parser("app", help="Launch Streamlit dashboard")
     p_app.add_argument("--port", type=int, default=8501)
 
+    # ── api ──────────────────────────────────────────────────────────────────
+    p_api = sub.add_parser("api", help="Launch FastAPI docs & REST API server")
+    p_api.add_argument("--port", type=int, default=8000)
+
     args = parser.parse_args()
     dispatch = {
         "init-db":  cmd_init_db,
@@ -275,6 +284,7 @@ def main():
         "simulate": cmd_simulate,
         "lcola":    cmd_lcola,
         "app":      cmd_app,
+        "api":      cmd_api,
     }
 
     if args.command not in dispatch:

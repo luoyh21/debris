@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>功能总览 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs" class="active">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>空间碎片监测与发射碰撞风险评估系统</h1>
+<p>本系统是一套面向航天发射任务规划人员和空间碎片研究人员的<strong>全链路空间态势感知平台</strong>。从数据采集、轨道预报，到碰撞风险评估和发射窗口优化，提供端到端的决策支持。</p>
+<p>系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong> 五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，并提供 8 个交互式功能页面和 6 个 REST API 接口。</p>
+
+<h2>核心功能一览</h2>
+<div class="cards">
+  <a href="/docs/modules/overview" class="card" style="text-decoration:none;color:inherit">
+    <h4>系统概览面板</h4>
+    <p>一目了然掌握全库在轨目标总量、各类型分布、数据摄入状态和发射历史趋势。</p>
+  </a>
+  <a href="/docs/modules/visualization" class="card" style="text-decoration:none;color:inherit">
+    <h4>可视化探索</h4>
+    <p>正射球面和 3D 地球上实时观看碎片运动，高度分层下钻，区域碎片搜索，轨道预报。</p>
+  </a>
+  <a href="/docs/modules/catalog" class="card" style="text-decoration:none;color:inherit">
+    <h4>目标目录</h4>
+    <p>多源融合的统一目标数据库，支持按数据源、国家、类型、RCS 等维度筛选与检索。</p>
+  </a>
+  <a href="/docs/modules/simulation" class="card" style="text-decoration:none;color:inherit">
+    <h4>轨迹仿真</h4>
+    <p>CZ-5B / Falcon 9 / Ariane 6 火箭 6-DOF 轨迹仿真，3D 可视化飞行全过程。</p>
+  </a>
+  <a href="/docs/modules/lcola" class="card" style="text-decoration:none;color:inherit">
+    <h4>LCOLA 飞越筛选</h4>
+    <p>扫描 ±N 分钟发射窗口，找出禁发时段，推荐最安全发射时刻。</p>
+  </a>
+  <a href="/docs/modules/collision" class="card" style="text-decoration:none;color:inherit">
+    <h4>碰撞风险评估</h4>
+    <p>对发射全过程逐阶段计算碰撞概率 (Pc)，四级风险预警 + 规避建议。</p>
+  </a>
+  <a href="/docs/modules/longterm" class="card" style="text-decoration:none;color:inherit">
+    <h4>长期风险评估</h4>
+    <p>基于泊松统计和 ORDEM/MASTER 通量模型，预测卫星寿命期内的累积碰撞风险。</p>
+  </a>
+  <a href="/docs/modules/ai" class="card" style="text-decoration:none;color:inherit">
+    <h4>AI 智能助手</h4>
+    <p>用自然语言提问，AI 自动调用分析工具返回结构化分析结果。</p>
+  </a>
+</div>
+
+<h2>数据规模</h2>
+<table>
+  <tr><th>数据源</th><th>提供内容</th><th>更新频率</th></tr>
+  <tr><td><strong>Space-Track.org</strong></td><td>GP 轨道根数 (TLE)、目标目录、轨迹段</td><td>按需拉取</td></tr>
+  <tr><td><strong>UNOOSA</strong></td><td>各国/地区年度发射统计 (1957–今)</td><td>年度更新</td></tr>
+  <tr><td><strong>UCS 卫星数据库</strong></td><td>卫星用途 (军/民/商)、运营方、轨道类别</td><td>半年更新</td></tr>
+  <tr><td><strong>ESA DISCOS</strong></td><td>欧空局碎片目录、质量、截面积、任务状态</td><td>持续同步</td></tr>
+  <tr><td><strong>GCAT (J. McDowell)</strong></td><td>全球发射日志、发射趋势原始数据</td><td>持续更新</td></tr>
+</table>
+
+<h2>系统能力概览</h2>
+<div style="display:grid;grid-template-columns:1fr;gap:12px;margin:16px 0 24px">
+  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+    <div class="card" style="text-align:center;flex:1;min-width:140px;border-color:var(--accent-dim)">
+      <h4>交互仪表盘</h4>
+      <p>8 个功能页面<br>交互式图表与 3D 可视化</p>
+    </div>
+    <div class="card" style="text-align:center;flex:1;min-width:140px;border-color:rgba(63,185,80,.4)">
+      <h4>REST API</h4>
+      <p>6 个接口端点<br>Swagger 在线文档</p>
+    </div>
+    <div class="card" style="text-align:center;flex:1;min-width:140px;border-color:rgba(210,153,34,.4)">
+      <h4>AI Agent</h4>
+      <p>MCP 协议集成<br>自然语言交互</p>
+    </div>
+  </div>
+</div>
+
+<h2>快速导航</h2>
+
+<div class="feature">
+  <h4>🔰 我是任务规划人员</h4>
+  <p>推荐流程：<a href="/docs/modules/simulation">轨迹仿真</a> → <a href="/docs/modules/collision">碰撞风险评估</a> → <a href="/docs/modules/lcola">LCOLA 飞越筛选</a></p>
+  <p>先模拟火箭发射轨迹，再评估固定时刻的碰撞风险，最后扫描发射窗口找到安全发射时刻。</p>
+</div>
+
+<div class="feature">
+  <h4>🔰 我是碎片研究人员</h4>
+  <p>推荐流程：<a href="/docs/modules/overview">系统概览</a> → <a href="/docs/modules/visualization">可视化探索</a> → <a href="/docs/modules/catalog">目标目录</a></p>
+  <p>查看全局态势，在 3D 地球上探索碎片分布，按条件筛选感兴趣的目标。</p>
+</div>
+
+<div class="feature">
+  <h4>🔰 我想通过程序调用</h4>
+  <p>前往 <a href="/docs/api">API 使用指南</a>，支持区域碎片查询、发射风险预测、再入预报、TLE 检索、RCS 筛选等 6 个接口。</p>
+</div>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>点击左侧目录或上方功能卡片即可查看每个功能模块的详细使用说明。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

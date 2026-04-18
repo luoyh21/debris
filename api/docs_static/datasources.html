@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数据来源与覆盖范围 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources" class="active">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>数据来源与覆盖范围</h1>
+<p>系统整合了五大权威空间态势感知数据源，通过统一的 NORAD 编号去重机制，构建了覆盖 <strong>60,000+</strong> 在轨目标的综合目录。每个数据源提供不同维度的信息，相互补充，确保数据的完整性和可靠性。</p>
+
+<h2>数据源总览</h2>
+<table>
+  <tr>
+    <th>数据源</th>
+    <th>提供内容</th>
+    <th>目标类型覆盖</th>
+    <th>更新频率</th>
+    <th>数据时效</th>
+  </tr>
+  <tr>
+    <td><strong>Space-Track.org</strong></td>
+    <td>GP 轨道根数 (TLE/3LE)、目标目录、轨迹段、decay 日期</td>
+    <td>碎片、载荷、箭体、未知</td>
+    <td>按需拉取</td>
+    <td>实时（TLE 更新延迟 &lt; 24h）</td>
+  </tr>
+  <tr>
+    <td><strong>UCS 卫星数据库</strong></td>
+    <td>卫星用途（通信/遥感/导航/科研）、用户类型（军/民/商/政府）、运营方</td>
+    <td>仅有效载荷（活跃卫星）</td>
+    <td>每半年发布</td>
+    <td>滞后 3–6 个月</td>
+  </tr>
+  <tr>
+    <td><strong>ESA DISCOS</strong></td>
+    <td>质量(kg)、截面积(m²)、任务名称、在轨状态（在轨/已衰减）</td>
+    <td>碎片、载荷、箭体</td>
+    <td>持续同步</td>
+    <td>接近实时</td>
+  </tr>
+  <tr>
+    <td><strong>GCAT (J. McDowell)</strong></td>
+    <td>全球发射日志、国别年度载荷发射量、累计在轨目标统计</td>
+    <td>所有发射记录</td>
+    <td>持续更新</td>
+    <td>接近实时</td>
+  </tr>
+  <tr>
+    <td><strong>UNOOSA</strong></td>
+    <td>联合国登记的各国年度发射统计（1957–今）</td>
+    <td>全部已登记目标</td>
+    <td>年度更新</td>
+    <td>滞后约 1 年</td>
+  </tr>
+</table>
+
+<h2>各数据源详解</h2>
+
+<div class="cards">
+  <div class="card">
+    <h4>Space-Track.org</h4>
+    <p>由美国太空监视网络 (SSN) 维护，是系统的<strong>核心轨道数据源</strong>。提供每个在轨目标的两行轨道根数 (TLE)、基本目录信息（名称、NORAD ID、国家代码、目标类型、发射日期）以及空间轨迹段数据。TLE 数据用于 SGP4 轨道传播预报。</p>
+  </div>
+  <div class="card">
+    <h4>UCS 卫星数据库</h4>
+    <p>忧思科学家联盟 (Union of Concerned Scientists) 维护的活跃卫星数据库。为载荷目标补充<strong>卫星用途</strong>（通信、遥感、导航、科学研究等）和<strong>用户类型</strong>（军用、民用、商用、政府）信息，帮助分析空间资产的功能分布。</p>
+  </div>
+  <div class="card">
+    <h4>ESA DISCOS</h4>
+    <p>欧空局碎片监测数据库。提供物理参数如<strong>质量</strong>和<strong>截面积</strong>、任务名称、以及在轨/已衰减状态标识。这些数据对于碰撞风险评估中的联合硬体半径 (HBR) 计算尤为重要。</p>
+  </div>
+  <div class="card">
+    <h4>GCAT</h4>
+    <p>天文学家 Jonathan McDowell 维护的全球航天活动目录，提供从 1957 年至今的<strong>完整发射记录</strong>，包括国别统计和年度趋势。用于系统概览面板中的发射历史趋势图表。</p>
+  </div>
+  <div class="card">
+    <h4>UNOOSA</h4>
+    <p>联合国外层空间事务厅维护的官方发射登记数据。作为<strong>交叉验证数据源</strong>，与 GCAT 数据进行对比，确保发射统计的准确性。</p>
+  </div>
+</div>
+
+
+<h2>您可以从各数据源获取什么</h2>
+<table>
+  <tr>
+    <th>信息维度</th>
+    <th>数据来源</th>
+    <th>查看方式</th>
+  </tr>
+  <tr>
+    <td>轨道参数（近地点/远地点/倾角/偏心率）</td>
+    <td>Space-Track (GP/TLE)</td>
+    <td><a href="/docs/modules/catalog">目标目录</a>、<a href="/docs/api/tle">TLE 查询 API</a></td>
+  </tr>
+  <tr>
+    <td>实时位置预报</td>
+    <td>Space-Track TLE + SGP4 传播</td>
+    <td><a href="/docs/modules/visualization">可视化探索</a>、<a href="/docs/api/region">区域碎片查询 API</a></td>
+  </tr>
+  <tr>
+    <td>目标类型（碎片/载荷/箭体）</td>
+    <td>Space-Track 目录</td>
+    <td><a href="/docs/modules/catalog">目标目录</a>筛选</td>
+  </tr>
+  <tr>
+    <td>卫星用途（通信/遥感/导航等）</td>
+    <td>UCS</td>
+    <td><a href="/docs/modules/catalog">目标目录</a>「用途」列</td>
+  </tr>
+  <tr>
+    <td>用户类型（军/民/商/政府）</td>
+    <td>UCS</td>
+    <td><a href="/docs/modules/catalog">目标目录</a>「用户类型」列</td>
+  </tr>
+  <tr>
+    <td>质量与截面积</td>
+    <td>ESA DISCOS</td>
+    <td><a href="/docs/modules/catalog">目标目录</a>「质量(ESA)」「截面(ESA)」列</td>
+  </tr>
+  <tr>
+    <td>雷达截面积 (RCS) 分类</td>
+    <td>Space-Track</td>
+    <td><a href="/docs/modules/catalog">目标目录</a>、<a href="/docs/api/rcs">RCS 筛选 API</a></td>
+  </tr>
+  <tr>
+    <td>发射历史趋势</td>
+    <td>GCAT + UNOOSA</td>
+    <td><a href="/docs/modules/overview">系统概览面板</a></td>
+  </tr>
+  <tr>
+    <td>再入预报</td>
+    <td>Space-Track (decay_date)</td>
+    <td><a href="/docs/api/reentry">再入预报 API</a></td>
+  </tr>
+</table>
+
+<h2>数据时效与新鲜度</h2>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>在系统概览面板的「多源数据摄入状态」区域，您可以看到每个数据源的实际入库记录数量和最后更新时间，确认数据是否处于最新状态。
+</div>
+
+<div class="feature">
+  <h4>数据更新说明</h4>
+  <p><strong>Space-Track TLE</strong> 是最频繁更新的数据源，大多数目标的 TLE 每 8–24 小时刷新一次。轨道传播预报的精度与 TLE 的时效性直接相关——TLE 越新鲜，SGP4 传播误差越小。</p>
+  <p><strong>UCS 和 UNOOSA</strong> 更新频率较低，但这些数据源提供的用途分类和宏观统计信息变化缓慢，不影响日常使用。</p>
+  <p><strong>ESA DISCOS</strong> 的物理参数（质量、截面积）在目标入轨后基本不再变化，因此更新频率无需很高。</p>
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>API 使用指南 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api" class="active">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>API 使用指南</h1>
+<p>系统提供 6 个 REST API 接口，支持通过 HTTP 请求以编程方式调用核心分析能力。适用于外部系统集成、自动化脚本或批量数据获取。</p>
+
+<h2>基本信息</h2>
+<table>
+  <tr><th>属性</th><th>说明</th></tr>
+  <tr><td><strong>基础 URL</strong></td><td><code id="base-url">http://&lt;your-host&gt;:8000</code></td></tr>
+  <tr><td><strong>认证方式</strong></td><td>无需认证，开放访问</td></tr>
+  <tr><td><strong>数据格式</strong></td><td>请求体：JSON（POST 请求）<br>响应体：JSON</td></tr>
+  <tr><td><strong>编码</strong></td><td>UTF-8</td></tr>
+  <tr><td><strong>Swagger 文档</strong></td><td><a href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8000/api/docs','_blank');return false">打开 Swagger UI（交互式 API 文档）</a></td></tr>
+  <tr><td><strong>ReDoc 文档</strong></td><td><a href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8000/api/redoc','_blank');return false">打开 ReDoc（只读 API 文档）</a></td></tr>
+</table>
+
+<div class="info-box">
+  💡 <strong>Swagger UI</strong> 提供交互式的 API 测试界面，您可以直接在浏览器中填写参数、发送请求并查看响应，无需任何编程。
+</div>
+
+<h2>接口总览</h2>
+<table>
+  <tr><th>方法</th><th>路径</th><th>功能</th><th>详细文档</th></tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/debris/region</code></td>
+    <td>区域碎片查询</td>
+    <td><a href="/docs/api/region">查看详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/launch/risk</code></td>
+    <td>发射碰撞风险预测</td>
+    <td><a href="/docs/api/launch-risk">查看详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/debris/reentry</code></td>
+    <td>再入预报</td>
+    <td><a href="/docs/api/reentry">查看详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-get">GET</span></td>
+    <td><code>/api/v1/tle/{norad_cat_id}</code></td>
+    <td>TLE 轨道根数查询</td>
+    <td><a href="/docs/api/tle">查看详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/debris/rcs</code></td>
+    <td>按 RCS 大小筛选碎片</td>
+    <td><a href="/docs/api/rcs">查看详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-get">GET</span></td>
+    <td><code>/api/v1/stats</code></td>
+    <td>系统概况统计</td>
+    <td><a href="/docs/api/stats">查看详情 →</a></td>
+  </tr>
+</table>
+
+<h2>通用响应格式</h2>
+<p>所有接口返回 JSON 格式的响应，包含以下通用字段模式：</p>
+<pre><code>{
+  "count": 42,              // 匹配的总数量
+  "showing": 42,            // 本次返回的数量（受 limit 限制）
+  "objects": [...],         // 具体对象列表
+  "summary": "...",         // 人类可读的摘要（中文）
+  "method": "PostGIS"       // 使用的查询方法（仅部分接口）
+}</code></pre>
+
+<h2>错误处理</h2>
+<p>当请求出错时，响应中会包含 <code>error</code> 字段：</p>
+<pre><code>{
+  "error": "错误描述信息"
+}</code></pre>
+
+<h2>快速示例</h2>
+<p>以下是一个完整的 curl 示例，查询文昌发射场附近的碎片：</p>
+<pre><code>curl -X POST http://&lt;your-host&gt;:8000/api/v1/debris/region \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lat_deg": 19.61,
+    "lon_deg": 110.95,
+    "radius_km": 500,
+    "alt_min_km": 200,
+    "alt_max_km": 2000,
+    "object_type": "ALL",
+    "limit": 20
+  }'</code></pre>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>将示例中的 <code>&lt;your-host&gt;</code> 替换为系统实际部署的主机名或 IP 地址。如果在本机访问，使用 <code>localhost</code>。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

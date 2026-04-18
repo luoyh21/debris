@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TLE 查询 API · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub active">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>TLE 轨道根数查询</h1>
+
+<div class="endpoint">
+  <span class="method method-get">GET</span>
+  <span class="path">/api/v1/tle/{norad_cat_id}</span>
+</div>
+
+<p><span class="tag tag-scene">适用场景</span> 根据 NORAD 编号获取指定空间目标的最新 TLE（两行轨道根数）。返回标准 TLE 文本和解析后的六个经典轨道根数，可直接用于 SGP4 传播或外部轨道分析工具。</p>
+
+<h2>请求参数</h2>
+<table>
+  <tr><th>参数名</th><th>位置</th><th>类型</th><th>必填</th><th>说明</th></tr>
+  <tr><td><code>norad_cat_id</code></td><td>路径参数</td><td>int</td><td>是</td><td>NORAD 目标编号（5 位数字）</td></tr>
+</table>
+
+<h2>响应字段</h2>
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>norad_cat_id</code></td><td>int</td><td>NORAD 编号</td></tr>
+  <tr><td><code>name</code></td><td>string</td><td>目标名称</td></tr>
+  <tr><td><code>object_type</code></td><td>string</td><td>目标类型</td></tr>
+  <tr><td><code>country</code></td><td>string</td><td>国家代码</td></tr>
+  <tr><td><code>tle_line1</code></td><td>string</td><td>TLE 第一行原始文本（69 字符）</td></tr>
+  <tr><td><code>tle_line2</code></td><td>string</td><td>TLE 第二行原始文本（69 字符）</td></tr>
+  <tr><td><code>epoch_utc</code></td><td>string</td><td>TLE 历元时刻 (ISO-8601)</td></tr>
+  <tr><td><code>elements.inclination_deg</code></td><td>float</td><td>轨道倾角 (°)</td></tr>
+  <tr><td><code>elements.eccentricity</code></td><td>float</td><td>偏心率</td></tr>
+  <tr><td><code>elements.mean_motion_rev_day</code></td><td>float</td><td>平均运动 (rev/day)</td></tr>
+  <tr><td><code>elements.raan_deg</code></td><td>float</td><td>升交点赤经 (°)</td></tr>
+  <tr><td><code>elements.arg_pericenter_deg</code></td><td>float</td><td>近地点幅角 (°)</td></tr>
+  <tr><td><code>elements.mean_anomaly_deg</code></td><td>float</td><td>平近点角 (°)</td></tr>
+  <tr><td><code>elements.bstar</code></td><td>float</td><td>B* 阻力系数</td></tr>
+  <tr><td><code>orbit.perigee_km</code></td><td>float</td><td>近地点高度 (km)</td></tr>
+  <tr><td><code>orbit.apogee_km</code></td><td>float</td><td>远地点高度 (km)</td></tr>
+</table>
+
+<h2>curl 示例</h2>
+<pre><code># 查询国际空间站 (ISS) 的 TLE
+curl http://&lt;your-host&gt;:8000/api/v1/tle/25544</code></pre>
+
+<h2>响应示例</h2>
+<pre><code>{
+  "norad_cat_id": 25544,
+  "name": "ISS (ZARYA)",
+  "object_type": "PAYLOAD",
+  "country": "ISS",
+  "tle_line1": "1 25544U 98067A   26107.54167824  .00016717  00000-0  10270-3 0  9993",
+  "tle_line2": "2 25544  51.6400 247.4717 0006703  85.9756  274.1952 15.48919461456789",
+  "epoch_utc": "2026-04-17T13:00:01+00:00",
+  "elements": {
+    "inclination_deg": 51.64,
+    "eccentricity": 0.0006703,
+    "mean_motion_rev_day": 15.48919461,
+    "raan_deg": 247.4717,
+    "arg_pericenter_deg": 85.9756,
+    "mean_anomaly_deg": 274.1952,
+    "bstar": 0.0001027
+  },
+  "orbit": {
+    "perigee_km": 418.2,
+    "apogee_km": 422.1
+  }
+}</code></pre>
+
+<div class="info-box">
+  💡 <strong>TLE 时效性：</strong>返回的是数据库中最新的 TLE。TLE 的年龄（当前时间 - epoch）越大，SGP4 传播误差越大。通常 TLE 年龄应小于 7 天以获得可接受的位置精度。
+</div>
+
+<h2>错误响应</h2>
+<p>当指定的 NORAD ID 不存在于数据库中时：</p>
+<pre><code>{
+  "error": "未找到 NORAD 99999 的轨道根数数据",
+  "norad_cat_id": 99999
+}</code></pre>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

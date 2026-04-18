@@ -177,6 +177,211 @@ def _earth_mesh(n: int = 80) -> tuple:
     return x, y, z
 
 
+_LAND_POLYGONS: list = [
+    # Africa
+    [(-17,14),(-16,20),(-13,28),(-5,36),(10,37),(20,35),(30,31),(35,28),
+     (40,20),(45,12),(50,12),(48,8),(42,2),(40,-3),(38,-10),(35,-20),
+     (33,-28),(28,-34),(18,-35),(20,-30),(28,-22),(35,-12),(40,-2),
+     (44,5),(50,10),(42,12),(35,18),(25,22),(15,20),(5,10),(-5,5),
+     (-10,8),(-15,12),(-17,14)],
+    # Europe
+    [(-10,36),(-5,43),(0,46),(3,48),(5,51),(3,54),(5,56),(8,58),
+     (12,56),(18,55),(24,56),(28,58),(30,62),(25,65),(18,67),(12,66),
+     (8,58),(5,54),(0,50),(-5,44),(-10,38),(-10,36)],
+    # Asia
+    [(28,42),(32,38),(36,35),(42,30),(48,27),(55,24),(62,24),(68,22),
+     (72,18),(77,10),(80,6),(85,12),(90,20),(95,18),(100,5),(104,1),
+     (108,10),(114,22),(120,32),(126,40),(133,48),(140,55),(150,60),
+     (165,65),(180,66),(180,72),(160,70),(140,68),(120,62),(100,56),
+     (80,58),(60,54),(45,50),(35,44),(28,42)],
+    # North America
+    [(-170,52),(-165,60),(-155,70),(-140,70),(-128,55),(-122,46),
+     (-118,38),(-116,30),(-108,25),(-100,18),(-92,15),(-85,12),
+     (-80,8),(-82,14),(-87,20),(-84,25),(-80,25),(-78,34),(-72,42),
+     (-66,46),(-55,50),(-60,54),(-68,58),(-82,65),(-100,70),
+     (-125,72),(-155,70),(-165,60),(-170,55),(-170,52)],
+    # South America
+    [(-80,10),(-72,12),(-65,10),(-55,4),(-48,0),(-40,-3),(-35,-8),
+     (-35,-12),(-40,-20),(-48,-28),(-55,-35),(-62,-40),(-68,-52),
+     (-75,-52),(-73,-42),(-72,-28),(-76,-12),(-80,0),(-80,10)],
+    # Australia
+    [(115,-35),(120,-28),(130,-12),(140,-12),(148,-20),(153,-28),
+     (153,-35),(148,-38),(140,-38),(132,-34),(120,-35),(115,-35)],
+    # Antarctica
+    [(-180,-62),(-120,-68),(-60,-68),(0,-70),(60,-68),(120,-68),
+     (180,-62),(180,-90),(-180,-90),(-180,-62)],
+    # Greenland
+    [(-55,60),(-45,60),(-20,70),(-18,78),(-30,82),(-52,82),(-58,72),(-55,60)],
+    # UK/Ireland
+    [(-10,50),(-5,50),(-2,53),(-4,57),(-8,56),(-10,52),(-10,50)],
+    # Japan
+    [(130,31),(135,35),(140,38),(143,44),(145,45),(142,40),(137,34),(130,31)],
+    # India subcontinent
+    [(68,24),(72,18),(77,10),(80,8),(84,14),(88,22),(90,24),(84,26),(76,28),(68,24)],
+    # Arabian Peninsula
+    [(35,28),(42,18),(48,14),(55,22),(56,25),(48,28),(40,30),(35,28)],
+    # Scandinavia
+    [(5,58),(10,62),(16,68),(22,70),(28,66),(30,62),(25,60),(15,56),(5,58)],
+    # Italy
+    [(8,44),(12,46),(16,42),(16,38),(12,38),(9,42),(8,44)],
+    # Indonesia (Sumatra-Java arc)
+    [(95,-6),(100,-1),(106,-6),(110,-8),(115,-8),(120,-5),(115,-4),
+     (108,-2),(100,-3),(95,-6)],
+    # New Zealand
+    [(166,-46),(172,-40),(178,-37),(178,-42),(170,-46),(166,-46)],
+    # Madagascar
+    [(44,-25),(48,-18),(50,-12),(46,-12),(43,-20),(44,-25)],
+    # Papua New Guinea
+    [(141,-8),(148,-5),(152,-6),(148,-8),(141,-8)],
+    # Borneo
+    [(109,-2),(115,2),(119,2),(116,-2),(111,-3),(109,-2)],
+]
+
+
+@st.cache_data(show_spinner=False)
+def _build_earth_texture(n: int = 110) -> np.ndarray:
+    """Build surface-color array matching _earth_mesh orientation using polygon land mask."""
+    from matplotlib.path import Path as _MplPath
+
+    u = np.linspace(0, 2 * np.pi, n)
+    v = np.linspace(0, np.pi, n // 2)
+    lon = np.degrees(u)
+    lon = np.where(lon > 180, lon - 360, lon)
+    lat = 90 - np.degrees(v)
+
+    lon_g, lat_g = np.meshgrid(lon, lat)    # shape (n//2, n)
+    pts = np.column_stack([lon_g.ravel(), lat_g.ravel()])
+
+    land = np.zeros(len(pts), dtype=bool)
+    for poly in _LAND_POLYGONS:
+        closed = list(poly) + [poly[0]]
+        path = _MplPath(closed)
+        land |= path.contains_points(pts)
+
+    color = np.full(len(pts), 0.12)
+    ocean = ~land
+    olat = np.abs(lat_g.ravel()[ocean])
+    color[ocean] = 0.05 + 0.12 * (1 + np.cos(np.radians(olat) * 1.5)) / 2
+
+    llat = lat_g.ravel()[land]
+    llon = lon_g.ravel()[land]
+    elev = (0.55 + 0.15 * np.abs(np.sin(np.radians(llat) * 1.5))
+            + 0.08 * np.cos(np.radians(llon) * 2))
+    color[land] = np.clip(elev, 0.42, 0.85)
+
+    polar = np.abs(lat_g.ravel()) > 72
+    color[polar & land] = 0.93
+    color[polar & ocean] = 0.90
+
+    return color.reshape(len(lat), len(lon)).T    # shape (n, n//2)
+
+
+def _gridlines_3d(fig: go.Figure, r: float = None, color: str = "rgba(60,140,200,0.22)",
+                  width: float = 0.8):
+    """Add latitude / longitude grid lines as Scatter3d traces on a sphere."""
+    if r is None:
+        r = R_EARTH + 2
+    n = 120
+
+    # Longitude lines every 30°
+    for lon_d in range(-180, 180, 30):
+        lat_arr = np.linspace(-90, 90, n)
+        lon_arr = np.full(n, lon_d, dtype=float)
+        x, y, z = lla_to_ecef(lat_arr, lon_arr, np.zeros(n) + (r - R_EARTH))
+        fig.add_trace(go.Scatter3d(
+            x=list(x), y=list(y), z=list(z),
+            mode="lines", line=dict(color=color, width=width),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    # Latitude lines every 30°
+    for lat_d in range(-60, 90, 30):
+        lon_arr = np.linspace(-180, 180, n)
+        lat_arr = np.full(n, lat_d, dtype=float)
+        x, y, z = lla_to_ecef(lat_arr, lon_arr, np.zeros(n) + (r - R_EARTH))
+        fig.add_trace(go.Scatter3d(
+            x=list(x), y=list(y), z=list(z),
+            mode="lines", line=dict(color=color, width=width),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    # Equator (thicker)
+    lon_arr = np.linspace(-180, 180, n)
+    lat_arr = np.zeros(n)
+    x, y, z = lla_to_ecef(lat_arr, lon_arr, np.zeros(n) + (r - R_EARTH))
+    fig.add_trace(go.Scatter3d(
+        x=list(x), y=list(y), z=list(z),
+        mode="lines", line=dict(color="rgba(100,200,255,0.35)", width=1.2),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+
+# Simplified coastline polylines (lon, lat) — major continents only
+_COASTLINE_POINTS: list = None
+
+def _get_coastlines() -> list:
+    """Return list of (lon_array, lat_array) polylines for major coastlines."""
+    global _COASTLINE_POINTS
+    if _COASTLINE_POINTS is not None:
+        return _COASTLINE_POINTS
+
+    segments = []
+
+    # Africa outline
+    segments.append((
+        [-17,-12,-5,10,12,32,42,51,44,35,33,12,2,-5,-8,-17,-17],
+        [15,5,0,-2,5,10,12,28,37,35,32,33,35,36,28,22,15]
+    ))
+    # Europe outline
+    segments.append((
+        [-10,-10,0,10,20,28,32,40,30,25,20,15,5,0,-10],
+        [36,40,48,54,58,62,70,68,60,55,48,43,38,36,36]
+    ))
+    # Asia (simplified)
+    segments.append((
+        [28,35,40,50,55,65,80,100,110,120,130,140,160,170,170,140,130,
+         120,105,100,90,80,70,55,42,35,28],
+        [32,30,25,20,10,10,5,5,15,25,35,40,55,60,65,60,50,45,40,35,
+         25,30,28,25,20,30,32]
+    ))
+    # North America
+    segments.append((
+        [-130,-140,-165,-165,-160,-140,-125,-110,-95,-82,-75,-65,-55,
+         -65,-80,-85,-88,-95,-100,-110,-120,-130],
+        [40,55,60,65,70,70,72,70,68,65,60,45,28,25,25,30,30,28,25,30,35,40]
+    ))
+    # South America
+    segments.append((
+        [-80,-75,-70,-65,-55,-45,-35,-40,-50,-60,-68,-72,-78,-80,-80],
+        [10,5,0,-5,-5,-10,-15,-25,-35,-50,-55,-50,-40,-20,10]
+    ))
+    # Australia
+    segments.append((
+        [115,130,145,150,153,148,140,130,120,115],
+        [-35,-12,-12,-20,-28,-38,-38,-35,-32,-35]
+    ))
+
+    _COASTLINE_POINTS = []
+    for lons, lats in segments:
+        _COASTLINE_POINTS.append((np.array(lons, float), np.array(lats, float)))
+    return _COASTLINE_POINTS
+
+
+def _add_coastlines_3d(fig: go.Figure, r: float = None,
+                       color: str = "rgba(80,200,140,0.55)", width: float = 1.5):
+    """Render simplified coastline outlines on the sphere."""
+    if r is None:
+        r = R_EARTH + 5
+    for lons, lats in _get_coastlines():
+        alt = np.zeros(len(lons)) + (r - R_EARTH)
+        x, y, z = lla_to_ecef(lats, lons, alt)
+        fig.add_trace(go.Scatter3d(
+            x=list(x), y=list(y), z=list(z),
+            mode="lines", line=dict(color=color, width=width),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+
 def lla_to_ecef(lat_deg, lon_deg, alt_km):
     """LLA → ECEF (km). Accepts scalars or arrays."""
     lat = np.radians(np.asarray(lat_deg, float))
@@ -430,46 +635,66 @@ def _apply_3d_layout(fig: go.Figure, height: int = 680, title: str = ""):
     )
 
 
-def _add_earth(fig: go.Figure, n: int = 110, opacity: float = 0.92):
-    """Add Earth sphere + thin atmosphere layer to a 3D figure."""
+_EARTH_COLORSCALE = [
+    [0.0, "#030a15"],     # deep ocean
+    [0.08, "#051525"],    # ocean
+    [0.18, "#082a40"],    # mid ocean
+    [0.30, "#0c3a55"],    # shallow ocean
+    [0.42, "#1a5c30"],    # coastal lowland
+    [0.50, "#287038"],    # lowland green
+    [0.58, "#3a7a35"],    # mid green
+    [0.65, "#4a8530"],    # upper green
+    [0.72, "#607828"],    # savanna/steppe
+    [0.80, "#807020"],    # highland brown
+    [0.85, "#956a1a"],    # mountain
+    [0.90, "#c8d8e8"],    # ice edge
+    [0.95, "#e0eaf4"],    # snow
+    [1.0, "#f0f4f8"],     # bright ice
+]
+
+
+def _add_earth_grid_only(fig: go.Figure, n: int = 80):
+    """Add a plain dark sphere with lat/lon gridlines only — no land/ocean/coastlines."""
     x_e, y_e, z_e = _earth_mesh(n)
-    # Lighting direction from the Sun (top-right)
+    color_arr = np.full_like(x_e, 0.15)
     fig.add_trace(go.Surface(
         x=x_e, y=y_e, z=z_e,
-        surfacecolor=np.ones_like(z_e),
-        colorscale=[[0, "#071a2e"], [0.4, "#0d3560"], [1, "#123f70"]],
+        surfacecolor=color_arr,
+        colorscale=[[0, "#1a3a5e"], [1, "#2a5a8a"]],
+        showscale=False, opacity=1.0,
+        lighting=dict(ambient=0.7, diffuse=0.4, specular=0.05),
+        hoverinfo="skip", name="Earth",
+    ))
+    _gridlines_3d(fig)
+
+
+def _add_earth(fig: go.Figure, n: int = 110, opacity: float = 1.0,
+               show_grid: bool = True, show_coastlines: bool = True):
+    """Add solid Earth sphere with land/ocean coloring, gridlines, and coastlines."""
+    x_e, y_e, z_e = _earth_mesh(n)
+    topo = _build_earth_texture(n)
+
+    fig.add_trace(go.Surface(
+        x=x_e, y=y_e, z=z_e,
+        surfacecolor=topo,
+        colorscale=_EARTH_COLORSCALE,
         showscale=False,
         opacity=opacity,
-        lighting=dict(ambient=0.55, diffuse=0.75, specular=0.1, roughness=0.85),
-        lightposition=dict(x=100000, y=50000, z=100000),
+        lighting=dict(ambient=0.6, diffuse=0.8, specular=0.15, roughness=0.8,
+                      fresnel=0.1),
+        lightposition=dict(x=100000, y=50000, z=80000),
         hoverinfo="skip",
         name="Earth",
     ))
-    # Thin atmosphere glow
-    r_atm = R_EARTH + 80
-    x_a = x_e * (r_atm / R_EARTH)
-    y_a = y_e * (r_atm / R_EARTH)
-    z_a = z_e * (r_atm / R_EARTH)
-    fig.add_trace(go.Surface(
-        x=x_a, y=y_a, z=z_a,
-        surfacecolor=np.ones_like(z_a),
-        colorscale=[[0, "rgba(80,160,255,0)"], [1, "rgba(80,160,255,0.06)"]],
-        showscale=False,
-        opacity=0.18,
-        hoverinfo="skip",
-        name="Atmosphere",
-    ))
+
+    if show_grid:
+        _gridlines_3d(fig)
+    if show_coastlines:
+        _add_coastlines_3d(fig)
 
 
 def _add_earth_local(fig: go.Figure, rx: float, ry: float, rz: float, n: int = 55):
-    """Full-size Earth at its correct position in the local rocket frame.
-
-    In the local frame the rocket sits at (0,0,0), so Earth's centre is at
-    (-rx, -ry, -rz).  Only the portion inside the scene range viewport will
-    be visible — it appears as a curved backdrop below/behind the rocket.
-    The scene range (set externally) keeps the near-clip tight, enabling
-    deep zoom even though the full sphere data is present.
-    """
+    """Full-size Earth at its correct position in the local rocket frame."""
     ecx, ecy, ecz = -rx, -ry, -rz
     u = np.linspace(0, 2 * np.pi, n)
     v = np.linspace(0, np.pi,     n // 2)
@@ -477,26 +702,48 @@ def _add_earth_local(fig: go.Figure, rx: float, ry: float, rz: float, n: int = 5
     ye = ecy + R_EARTH * np.outer(np.sin(u), np.sin(v))
     ze = ecz + R_EARTH * np.outer(np.ones(n), np.cos(v))
 
+    topo = _build_earth_texture(n)
+
     fig.add_trace(go.Surface(
         x=xe, y=ye, z=ze,
-        surfacecolor=np.ones_like(ze),
-        colorscale=[[0, "#071a2e"], [0.4, "#0d3560"], [1, "#123f70"]],
-        showscale=False, opacity=0.90,
-        lighting=dict(ambient=0.55, diffuse=0.75, specular=0.1, roughness=0.85),
-        lightposition=dict(x=100000, y=50000, z=100000),
+        surfacecolor=topo,
+        colorscale=_EARTH_COLORSCALE,
+        showscale=False, opacity=1.0,
+        lighting=dict(ambient=0.6, diffuse=0.8, specular=0.15, roughness=0.8),
+        lightposition=dict(x=100000, y=50000, z=80000),
         hoverinfo="skip", showlegend=False, name="Earth",
     ))
-    # Atmosphere glow ring
-    sc = (R_EARTH + 80) / R_EARTH
-    fig.add_trace(go.Surface(
-        x=ecx + (xe - ecx) * sc,
-        y=ecy + (ye - ecy) * sc,
-        z=ecz + (ze - ecz) * sc,
-        surfacecolor=np.ones_like(ze),
-        colorscale=[[0, "rgba(80,160,255,0)"], [1, "rgba(80,160,255,0.06)"]],
-        showscale=False, opacity=0.18,
-        hoverinfo="skip", showlegend=False,
-    ))
+
+    _n = 80
+    for lon_d in range(-180, 180, 30):
+        lat_arr = np.linspace(-90, 90, _n)
+        lon_arr = np.full(_n, lon_d, dtype=float)
+        gx, gy, gz = lla_to_ecef(lat_arr, lon_arr, np.full(_n, 2.0))
+        fig.add_trace(go.Scatter3d(
+            x=list(np.asarray(gx) - rx), y=list(np.asarray(gy) - ry),
+            z=list(np.asarray(gz) - rz),
+            mode="lines", line=dict(color="rgba(60,140,200,0.18)", width=0.6),
+            hoverinfo="skip", showlegend=False,
+        ))
+    for lat_d in range(-60, 90, 30):
+        lon_arr = np.linspace(-180, 180, _n)
+        lat_arr = np.full(_n, lat_d, dtype=float)
+        gx, gy, gz = lla_to_ecef(lat_arr, lon_arr, np.full(_n, 2.0))
+        fig.add_trace(go.Scatter3d(
+            x=list(np.asarray(gx) - rx), y=list(np.asarray(gy) - ry),
+            z=list(np.asarray(gz) - rz),
+            mode="lines", line=dict(color="rgba(60,140,200,0.18)", width=0.6),
+            hoverinfo="skip", showlegend=False,
+        ))
+    for clons, clats in _get_coastlines():
+        alt = np.full(len(clons), 5.0)
+        cx, cy, cz = lla_to_ecef(clats, clons, alt)
+        fig.add_trace(go.Scatter3d(
+            x=list(np.asarray(cx) - rx), y=list(np.asarray(cy) - ry),
+            z=list(np.asarray(cz) - rz),
+            mode="lines", line=dict(color="rgba(80,200,140,0.45)", width=1.2),
+            hoverinfo="skip", showlegend=False,
+        ))
 
 
 def _add_altitude_shell(fig: go.Figure, alt_km: float, color: str, opacity: float = 0.08):
@@ -541,13 +788,16 @@ def make_globe_ortho(df: pd.DataFrame) -> go.Figure:
     ))
     fig.update_geos(
         projection_type="orthographic",
-        showcoastlines=True,  coastlinecolor="#2a3d55",
-        showland=True,        landcolor="#132030",
-        showocean=True,       oceancolor="#07111e",
+        showcoastlines=True,  coastlinecolor="#3a7a5a", coastlinewidth=1.2,
+        showland=True,        landcolor="#1a3525",
+        showocean=True,       oceancolor="#071520",
+        showlakes=True,       lakecolor="#0a1f30",
+        showrivers=True,      rivercolor="#0d2a40", riverwidth=0.5,
+        showcountries=True,   countrycolor="#2a4a3a", countrywidth=0.5,
         showframe=False,
         bgcolor=DARK_BG,
-        lonaxis=dict(showgrid=True, gridcolor="#1c2a38", dtick=30),
-        lataxis=dict(showgrid=True, gridcolor="#1c2a38", dtick=30),
+        lonaxis=dict(showgrid=True, gridcolor="#1a2e3e", dtick=30, gridwidth=0.5),
+        lataxis=dict(showgrid=True, gridcolor="#1a2e3e", dtick=30, gridwidth=0.5),
         projection_rotation=dict(lon=110, lat=20, roll=0),
     )
     fig.update_layout(
@@ -1195,6 +1445,253 @@ def make_proximity_2d(
     return fig
 
 
+# ─── Real-time continuous orbital animation ──────────────────────────────────
+@st.cache_data(ttl=600, show_spinner="预计算实时轨道…")
+def _compute_realtime_frames(
+    t_base_iso: str, n_frames: int = 60, step_s: float = 10.0,
+    alt_min: float = 0, alt_max: float = 2000,
+    obj_type: str = "ALL", limit: int = 4000,
+) -> dict:
+    """Pre-compute keyframes for real-time animation.
+
+    Returns {"colors": [...], "texts": [...], "frames": [...], "step_s": float}
+    Only debris that succeed for ALL frames are kept (consistent array sizes).
+    """
+    from database.db import session_scope
+    from sqlalchemy import text
+    from propagator.sgp4_propagator import StateVector
+
+    if not _SGP4_OK:
+        return {"colors": [], "frames": []}
+
+    t_base = datetime.fromisoformat(t_base_iso).replace(tzinfo=timezone.utc)
+    obj_u = (obj_type or "ALL").upper()
+
+    sql = text("""
+        WITH latest_gp AS (
+            SELECT DISTINCT ON (norad_cat_id)
+                norad_cat_id, tle_line1, tle_line2
+            FROM gp_elements WHERE norad_cat_id IS NOT NULL
+            ORDER BY norad_cat_id, epoch DESC
+        )
+        SELECT co.norad_cat_id, co.object_type, co.name,
+               lg.tle_line1, lg.tle_line2
+        FROM catalog_objects co
+        JOIN latest_gp lg ON lg.norad_cat_id = co.norad_cat_id
+        WHERE co.apogee_km  >= :alt_min
+          AND co.perigee_km <= :alt_max_buf
+          AND (:obj_type = 'ALL' OR UPPER(co.object_type) = :obj_type)
+        ORDER BY co.norad_cat_id LIMIT :lim
+    """)
+
+    try:
+        with session_scope() as sess:
+            rows = sess.execute(sql, {
+                "alt_min": alt_min, "alt_max_buf": alt_max + 500,
+                "obj_type": obj_u, "lim": limit,
+            }).fetchall()
+    except Exception:
+        return {"colors": [], "frames": []}
+
+    sats = []
+    for row in rows:
+        try:
+            sat = Satrec.twoline2rv(str(row.tle_line1), str(row.tle_line2))
+            sats.append((sat, str(row.object_type or "UNKNOWN"),
+                         int(row.norad_cat_id), str(row.name or "")[:30]))
+        except Exception:
+            continue
+
+    ns = len(sats)
+    if ns == 0:
+        return {"colors": [], "frames": []}
+
+    all_data = np.full((ns, n_frames, 5), np.nan)
+
+    for fi in range(n_frames):
+        t = t_base + timedelta(seconds=fi * step_s)
+        jd2, fr2 = jday(t.year, t.month, t.day,
+                         t.hour, t.minute, t.second + t.microsecond / 1e6)
+        for si, (sat, _, _nid, _nm) in enumerate(sats):
+            e, r, v = sat.sgp4(jd2, fr2)
+            if e != 0:
+                continue
+            sv = StateVector(epoch=t, x=float(r[0]), y=float(r[1]), z=float(r[2]),
+                             vx=float(v[0]), vy=float(v[1]), vz=float(v[2]))
+            lat2, lon2, alt2 = sv.to_geodetic()
+            if not np.isfinite(alt2) or alt2 < alt_min or alt2 > alt_max:
+                continue
+            ex, ey, ez = lla_to_ecef(lat2, lon2, alt2)
+            all_data[si, fi] = [lon2, lat2, float(ex), float(ey), float(ez)]
+
+    valid = ~np.any(np.isnan(all_data[:, :, 0]), axis=1)
+    all_data = all_data[valid]
+    colors = [_TYPE_HEX.get(sats[i][1], "#888") for i in range(ns) if valid[i]]
+    texts = [
+        f"{sats[i][3]}<br>NORAD {sats[i][2]}<br>{_TYPE_CN.get(sats[i][1], sats[i][1])}"
+        for i in range(ns) if valid[i]
+    ]
+
+    frames = []
+    for fi in range(n_frames):
+        frames.append({
+            "lon": np.round(all_data[:, fi, 0], 2).tolist(),
+            "lat": np.round(all_data[:, fi, 1], 2).tolist(),
+            "x": np.round(all_data[:, fi, 2], 1).tolist(),
+            "y": np.round(all_data[:, fi, 3], 1).tolist(),
+            "z": np.round(all_data[:, fi, 4], 1).tolist(),
+        })
+    return {"colors": colors, "texts": texts, "frames": frames, "step_s": step_s}
+
+
+_RT_JS_TEMPLATE = """
+<div id="{div_id}" style="width:100%;height:{height}px"></div>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script>
+(function(){{
+  var fig={fig_json};
+  var el=document.getElementById('{div_id}');
+  Plotly.newPlot(el,fig.data,fig.layout,{{scrollZoom:true,displayModeBar:false,responsive:true}});
+  var F={frames_json};
+  var N=F.length,stepMs={step_ms},trIdx={trace_idx};
+  if(N<2)return;
+  var t0=performance.now(),last=0;
+  function tick(now){{
+    if(now-last<500){{requestAnimationFrame(tick);return;}}
+    last=now;
+    var elapsed=now-t0,total=N*stepMs;
+    var pos=(elapsed%total)/stepMs;
+    var i0=Math.floor(pos)%N,i1=(i0+1)%N,f=pos-Math.floor(pos);
+    var n=F[i0].{k0}.length;
+    var a=new Array(n),b=new Array(n){extra_arr_decl};
+    for(var i=0;i<n;i++){{
+      var d0=F[i1].{k0}[i]-F[i0].{k0}[i];
+      {wrap_fix_0}
+      a[i]=F[i0].{k0}[i]+f*d0;
+      {wrap_clamp_0}
+      var d1=F[i1].{k1}[i]-F[i0].{k1}[i];
+      {wrap_fix_1}
+      b[i]=F[i0].{k1}[i]+f*d1;
+      {extra_interp}
+    }}
+    Plotly.restyle(el,{restyle_obj},[trIdx]);
+    requestAnimationFrame(tick);
+  }}
+  requestAnimationFrame(tick);
+}})();
+</script>
+"""
+
+
+def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-globe"):
+    """Render continuously animating orthographic globe (auto-play, no interaction needed)."""
+    import streamlit.components.v1 as components
+    import json as _json
+
+    colors = data.get("colors", [])
+    texts = data.get("texts", [])
+    frames = data.get("frames", [])
+    step_s = data.get("step_s", 10)
+    if not frames or not frames[0].get("lon"):
+        st.info("暂无足够数据用于动画")
+        return
+
+    fig = go.Figure(go.Scattergeo(
+        lon=frames[0]["lon"], lat=frames[0]["lat"],
+        mode="markers",
+        marker=dict(size=2.5, color=colors, opacity=0.72, line=dict(width=0)),
+        text=texts if texts else None,
+        hovertemplate="%{text}<extra></extra>" if texts else None,
+        hoverinfo="text" if texts else "skip",
+    ))
+    fig.update_geos(
+        projection_type="orthographic",
+        showcoastlines=True, coastlinecolor="#3a7a5a", coastlinewidth=1.2,
+        showland=True, landcolor="#1a3525",
+        showocean=True, oceancolor="#071520",
+        showlakes=True, lakecolor="#0a1f30",
+        showcountries=True, countrycolor="#2a4a3a", countrywidth=0.5,
+        showframe=False, bgcolor=DARK_BG,
+        lonaxis=dict(showgrid=True, gridcolor="#1a2e3e", dtick=30, gridwidth=0.5),
+        lataxis=dict(showgrid=True, gridcolor="#1a2e3e", dtick=30, gridwidth=0.5),
+        projection_rotation=dict(lon=110, lat=20, roll=0),
+    )
+    fig.update_layout(paper_bgcolor=DARK_BG, margin=dict(l=0,r=0,t=0,b=0),
+                      height=height, showlegend=False)
+
+    fd = [{"lon": f["lon"], "lat": f["lat"]} for f in frames]
+
+    html = _RT_JS_TEMPLATE.format(
+        div_id=div_id, height=height,
+        fig_json=fig.to_json(),
+        frames_json=_json.dumps(fd, separators=(',', ':')),
+        step_ms=int(step_s * 1000),
+        trace_idx=0,
+        k0="lon", k1="lat",
+        extra_arr_decl="",
+        wrap_fix_0="if(d0>180)d0-=360;if(d0<-180)d0+=360;",
+        wrap_clamp_0="if(a[i]>180)a[i]-=360;if(a[i]<-180)a[i]+=360;",
+        wrap_fix_1="",
+        extra_interp="",
+        restyle_obj="{lon:[a],lat:[b]}",
+    )
+    components.html(html, height=height + 10, scrolling=False)
+
+
+def _render_realtime_3d(data: dict, layer: dict, height: int = 680):
+    """Render continuously animating 3D sphere with grid-only Earth."""
+    import streamlit.components.v1 as components
+    import json as _json
+
+    colors = data.get("colors", [])
+    texts = data.get("texts", [])
+    frames = data.get("frames", [])
+    step_s = data.get("step_s", 10)
+    if not frames or not frames[0].get("x"):
+        st.info("暂无足够数据用于 3D 动画")
+        return
+
+    fig = go.Figure()
+    _add_earth_grid_only(fig, n=80)
+    n_earth_traces = len(fig.data)
+
+    f0 = frames[0]
+    fig.add_trace(go.Scatter3d(
+        x=f0["x"], y=f0["y"], z=f0["z"],
+        mode="markers",
+        marker=dict(size=2.0, color=colors, opacity=0.85, line=dict(width=0)),
+        text=texts if texts else None,
+        hovertemplate="%{text}<extra></extra>" if texts else None,
+        hoverinfo="text" if texts else "skip",
+        name="",
+    ))
+
+    scene_r = R_EARTH + (layer["alt_max"] + 500)
+    earth_ax = dict(range=[-scene_r, scene_r])
+    _apply_3d_layout(fig, height=height)
+    fig.update_layout(scene=dict(
+        xaxis=earth_ax, yaxis=earth_ax, zaxis=earth_ax,
+        aspectmode="manual", aspectratio=dict(x=1, y=1, z=1),
+    ))
+
+    fd = [{"x": f["x"], "y": f["y"], "z": f["z"]} for f in frames]
+
+    html = _RT_JS_TEMPLATE.format(
+        div_id="rt-3d", height=height,
+        fig_json=fig.to_json(),
+        frames_json=_json.dumps(fd, separators=(',', ':')),
+        step_ms=int(step_s * 1000),
+        trace_idx=n_earth_traces,
+        k0="x", k1="y",
+        extra_arr_decl=",c=new Array(n)",
+        wrap_fix_0="", wrap_clamp_0="",
+        wrap_fix_1="",
+        extra_interp="var d2=F[i1].z[i]-F[i0].z[i];c[i]=F[i0].z[i]+f*d2;",
+        restyle_obj="{x:[a],y:[b],z:[c]}",
+    )
+    components.html(html, height=height + 10, scrolling=False)
+
+
 # ─── Tab renderers ─────────────────────────────────────────────────────────────
 def _render_global_view():
     col_ctrl, col_map = st.columns([1, 3.2], gap="medium")
@@ -1280,9 +1777,26 @@ def _render_global_view():
             )
 
         if view_mode == _gv_ortho:
-            fig_globe = make_globe_ortho(df)
-            st.plotly_chart(fig_globe, use_container_width=True,
-                            config=dict(scrollZoom=True, displayModeBar=False))
+            _gv_alt_min = float(alt_range[0])
+            _gv_alt_max = float(alt_range[1])
+            _gv_obj_type = obj_type
+            _gv_limit = min(n_limit, 4000)
+
+            @st.fragment(run_every=timedelta(seconds=600))
+            def _gv_animated_ortho():
+                t_now = datetime.now(timezone.utc) + timedelta(hours=int(hour_offset))
+                rd = _compute_realtime_frames(
+                    t_base_iso=t_now.isoformat(),
+                    n_frames=60, step_s=10.0,
+                    alt_min=_gv_alt_min, alt_max=_gv_alt_max,
+                    obj_type=_gv_obj_type, limit=_gv_limit,
+                )
+                if rd.get("frames"):
+                    _render_realtime_ortho(rd, height=530, div_id="rt-globe")
+                else:
+                    st.plotly_chart(make_globe_ortho(df), use_container_width=True,
+                                    config=dict(scrollZoom=True, displayModeBar=False))
+            _gv_animated_ortho()
         else:
             # ── pydeck GlobeView ──────────────────────────────────────────────
             try:
@@ -1448,12 +1962,11 @@ def _render_layer_drilldown():
         )
 
     with col_3d:
-        with st.spinner("渲染 3D 轨道球面…"):
-            # Fetch enough propagation candidates so that after strict-altitude filtering
-            # we end up with ≈cur_total points, then 3D sampling caps at max_pts.
+        t_now = datetime.now(timezone.utc)
+        with st.spinner("加载该轨道层数据…"):
             fetch_limit = min(max(cur_total * 5 + 1000, max_pts * 6), 60000)
             df3d = load_positions_at_time(
-                t_utc=datetime.now(timezone.utc),
+                t_utc=t_now,
                 alt_min=float(cur["alt_min"]), alt_max=float(cur["alt_max"]),
                 obj_type=obj_type_3d, limit=fetch_limit,
             )
@@ -1467,9 +1980,26 @@ def _render_layer_drilldown():
                 + (f"（当前渲染 {rendered:,} / {len(df3d):,}，已达渲染上限 {max_pts:,}）" if at_limit
                    else f"（当前渲染 {rendered:,}）")
             )
-            fig3d = make_3d_sphere(df3d, layer=cur, max_pts=max_pts)
-            st.plotly_chart(fig3d, use_container_width=True,
-                            config=dict(scrollZoom=True, displayModeBar=False))
+            _ld_alt_min = float(cur["alt_min"])
+            _ld_alt_max = float(cur["alt_max"])
+            _ld_obj_type = obj_type_3d
+            _ld_limit = min(max_pts, 4000)
+            _ld_layer = cur
+
+            @st.fragment(run_every=timedelta(seconds=600))
+            def _ld_animated_3d():
+                t_n = datetime.now(timezone.utc)
+                rd = _compute_realtime_frames(
+                    t_base_iso=t_n.isoformat(),
+                    n_frames=60, step_s=10.0,
+                    alt_min=_ld_alt_min, alt_max=_ld_alt_max,
+                    obj_type=_ld_obj_type, limit=_ld_limit,
+                )
+                if rd.get("frames"):
+                    _render_realtime_3d(rd, layer=_ld_layer, height=680)
+                else:
+                    st.info("该轨道层暂无实时帧数据")
+            _ld_animated_3d()
 
     # Detail table
     if not df3d.empty:

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RCS 筛选 API · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub active">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>按 RCS 大小筛选碎片</h1>
+
+<div class="endpoint">
+  <span class="method method-post">POST</span>
+  <span class="path">/api/v1/debris/rcs</span>
+</div>
+
+<p><span class="tag tag-scene">适用场景</span> 按雷达截面积 (RCS) 大小类别筛选空间目标。适用于威胁甄别——例如仅筛选 LARGE 目标评估对载人航天器的威胁，或筛选 SMALL 目标了解不可追踪碎片的目录覆盖情况。</p>
+
+<h2>RCS 类别说明</h2>
+<table>
+  <tr><th>类别</th><th>RCS 范围</th><th>典型目标</th><th>威胁特征</th></tr>
+  <tr><td><strong>SMALL</strong></td><td>&lt; 0.1 m²</td><td>小碎片、螺栓、碎片云颗粒</td><td>追踪困难，距离不确定性最大</td></tr>
+  <tr><td><strong>MEDIUM</strong></td><td>0.1 – 1 m²</td><td>中等碎片、小型卫星残骸</td><td>可追踪但位置精度一般</td></tr>
+  <tr><td><strong>LARGE</strong></td><td>&gt; 1 m²</td><td>大型碎片、箭体、失效卫星</td><td>最易追踪，碰撞后碎片产生最多</td></tr>
+</table>
+
+<h2>请求参数</h2>
+<table>
+  <tr><th>参数名</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr>
+  <tr><td><code>rcs_sizes</code></td><td>array[string]</td><td>否</td><td>全部类别</td><td>RCS 类别列表：["SMALL"] / ["MEDIUM","LARGE"] 等</td></tr>
+  <tr><td><code>alt_min_km</code></td><td>float</td><td>否</td><td>0</td><td>最低近地点高度 (km)</td></tr>
+  <tr><td><code>alt_max_km</code></td><td>float</td><td>否</td><td>2000</td><td>最高远地点高度 (km)</td></tr>
+  <tr><td><code>object_type</code></td><td>string</td><td>否</td><td>"ALL"</td><td>目标类型：ALL / DEBRIS / PAYLOAD / ROCKET BODY</td></tr>
+  <tr><td><code>limit</code></td><td>int</td><td>否</td><td>50</td><td>最大返回条数，1–200</td></tr>
+</table>
+
+<h2>响应字段</h2>
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>filter</code></td><td>object</td><td>筛选参数回显</td></tr>
+  <tr><td><code>count</code></td><td>int</td><td>匹配总数量</td></tr>
+  <tr><td><code>showing</code></td><td>int</td><td>本次返回数量</td></tr>
+  <tr><td><code>objects</code></td><td>array</td><td>目标列表</td></tr>
+  <tr><td><code>objects[].norad_cat_id</code></td><td>int</td><td>NORAD 编号</td></tr>
+  <tr><td><code>objects[].name</code></td><td>string</td><td>目标名称</td></tr>
+  <tr><td><code>objects[].object_type</code></td><td>string</td><td>目标类型</td></tr>
+  <tr><td><code>objects[].country</code></td><td>string</td><td>国家代码</td></tr>
+  <tr><td><code>objects[].rcs_size</code></td><td>string</td><td>RCS 类别：SMALL / MEDIUM / LARGE</td></tr>
+  <tr><td><code>objects[].perigee_km</code></td><td>float</td><td>近地点高度 (km)</td></tr>
+  <tr><td><code>objects[].apogee_km</code></td><td>float</td><td>远地点高度 (km)</td></tr>
+  <tr><td><code>objects[].inclination_deg</code></td><td>float</td><td>轨道倾角 (°)</td></tr>
+  <tr><td><code>objects[].period_min</code></td><td>float</td><td>轨道周期 (分钟)</td></tr>
+  <tr><td><code>summary</code></td><td>string</td><td>中文摘要</td></tr>
+</table>
+
+<h2>curl 示例</h2>
+<pre><code># 筛选 LEO 中的 LARGE 碎片
+curl -X POST http://&lt;your-host&gt;:8000/api/v1/debris/rcs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rcs_sizes": ["LARGE"],
+    "alt_min_km": 200,
+    "alt_max_km": 2000,
+    "object_type": "DEBRIS",
+    "limit": 20
+  }'</code></pre>
+
+<h2>响应示例</h2>
+<pre><code>{
+  "filter": {
+    "rcs_sizes": ["LARGE"],
+    "alt_range_km": [200, 2000],
+    "object_type": "DEBRIS"
+  },
+  "count": 1245,
+  "showing": 20,
+  "objects": [
+    {
+      "norad_cat_id": 37237,
+      "name": "FENGYUN 1C DEB",
+      "object_type": "DEBRIS",
+      "country": "PRC",
+      "rcs_size": "LARGE",
+      "perigee_km": 215.3,
+      "apogee_km": 865.4,
+      "inclination_deg": 98.72,
+      "period_min": 96.8
+    }
+  ],
+  "summary": "高度 200–2000 km 范围内 RCS=LARGE 的目标共 1245 个（1245 个LARGE）。"
+}</code></pre>
+
+<div class="info-box">
+  💡 <strong>使用场景示例：</strong>载人任务风险评估时，重点关注 LARGE 目标（碰撞后产生碎片最多）；目录完整性分析时，关注 SMALL 目标（追踪覆盖率最低的类别）。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

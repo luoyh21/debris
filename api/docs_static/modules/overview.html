@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>系统概览面板 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview" class="active">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>系统概览面板</h1>
+<p><span class="tag tag-scene">场景</span> 快速了解系统数据状态和空间环境态势，获取全库统计数据的全景视图。</p>
+<p>概览面板是您登录系统后的默认首页。它汇总了所有数据源的关键指标，帮助您在几秒内掌握当前空间环境的整体状况。</p>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「系统概览」</strong>（默认已选中）</li>
+  <li>查看顶部四张指标卡片，了解当前在轨目标的总量和分类统计</li>
+  <li>向下滚动，依次浏览各个统计图表和数据矩阵</li>
+  <li>需要深入查看某类数据时，点击对应模块链接跳转</li>
+</ol>
+
+<h2 id="metrics">指标卡片</h2>
+<div class="feature">
+  <h4>📊 顶部四大指标</h4>
+  <span class="tag tag-output">实时统计</span>
+  <p style="margin-top:10px">页面顶部展示四张指标卡片，数据来自多源融合后的统一目录：</p>
+  <table>
+    <tr><th>指标</th><th>含义</th><th>典型值</th></tr>
+    <tr><td><strong>在轨目标总数</strong></td><td>所有数据源去重后的在轨空间目标总量</td><td>60,000+</td></tr>
+    <tr><td><strong>有效载荷</strong></td><td>PAYLOAD 类型目标数量（包含活跃和失效卫星）</td><td>~15,000</td></tr>
+    <tr><td><strong>空间碎片</strong></td><td>DEBRIS 类型目标数量（解体碎片、碰撞碎片等）</td><td>~32,000</td></tr>
+    <tr><td><strong>火箭箭体</strong></td><td>ROCKET BODY 类型目标数量（废弃上面级等）</td><td>~4,000</td></tr>
+  </table>
+</div>
+
+<h2>目标类型分布图</h2>
+<div class="feature">
+  <h4>📈 柱状图：各类型目标数量</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">左侧柱状图展示碎片、载荷、箭体、未知四种类型的目标数量对比。碎片通常占总量的 50% 以上，是空间环境的主要威胁。</p>
+</div>
+
+<h2>轨道分布</h2>
+<div class="feature">
+  <h4>🌐 半长轴高度分布直方图</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">右侧直方图按半长轴高度展示目标分布，使用 log10 刻度以容纳从 LEO 到深空的全范围。可以直观看到 LEO（低地球轨道，~400–2000 km）和 GEO（地球同步轨道，~35,786 km）附近的高密度聚集带。</p>
+</div>
+
+<div class="feature">
+  <h4>🏗️ 轨道层分布（分层统计）</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">将目标按轨道高度分为六个标准层级，显示各层的目标数量和占比：</p>
+  <table>
+    <tr><th>轨道层</th><th>高度范围</th><th>典型目标</th></tr>
+    <tr><td>VLEO</td><td>0–450 km</td><td>低轨遥感卫星、即将再入目标</td></tr>
+    <tr><td>LEO</td><td>450–2,000 km</td><td>Starlink、碎片云、空间站</td></tr>
+    <tr><td>MEO</td><td>2,000–33,786 km</td><td>GPS、北斗导航卫星</td></tr>
+    <tr><td>GEO 带</td><td>35,786 ± 2,000 km</td><td>通信卫星、气象卫星</td></tr>
+    <tr><td>HEO</td><td>37,786–120,000 km</td><td>高椭圆轨道卫星</td></tr>
+    <tr><td>深空</td><td>&gt; 120,000 km</td><td>月球转移、深空探测</td></tr>
+  </table>
+</div>
+
+<h2>轨道倾角分布</h2>
+<div class="feature">
+  <h4>📐 倾角直方图</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">展示所有目标的轨道倾角分布（0°–180°），每约 2.5° 一个分箱。典型峰值出现在：</p>
+  <ul>
+    <li><strong>~53°</strong>：Starlink 星座轨道倾角</li>
+    <li><strong>~65°</strong>：俄罗斯/苏联低轨卫星常用倾角</li>
+    <li><strong>~97–98°</strong>：太阳同步轨道（SSO），遥感卫星集中区</li>
+  </ul>
+</div>
+
+<h2 id="trend">发射历史趋势</h2>
+<div class="feature">
+  <h4>🚀 历年航天发射趋势（1957–今）</h4>
+  <span class="tag tag-scene">宏观分析</span>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">数据融合自 GCAT、UNOOSA 和 Space-Track 三个来源。包含三张图表：</p>
+  <ul>
+    <li><strong>年代发射量汇总：</strong>按美国、俄罗斯/苏联、中国、欧洲、日本、印度分国/地区的年代总发射量堆叠柱状图</li>
+    <li><strong>近年逐年发射量：</strong>2010 年至今的逐年发射趋势，可清楚看到 Starlink 等巨型星座驱动的 2020 年后跃升</li>
+    <li><strong>在轨目标数量演化：</strong>按碎片/载荷/箭体类型累计的在轨目标总量历史变化曲线</li>
+  </ul>
+</div>
+
+<h2>国家/地区排名</h2>
+<div class="feature">
+  <h4>🌍 主要国家/地区在轨目标数量（Top 15）</h4>
+  <span class="tag tag-output">数据表</span>
+  <p style="margin-top:10px">按国家代码统计各国的碎片数、载荷数、箭体数和总数，显示前 15 名。美国 (US)、俄罗斯/苏联 (CIS) 和中国 (PRC) 通常占据前三位。</p>
+</div>
+
+<h2 id="ingestion">数据摄入状态矩阵</h2>
+<div class="feature">
+  <h4>📥 多源数据摄入状态</h4>
+  <span class="tag tag-action">监控</span>
+  <p style="margin-top:10px">以「数据源 × 目标类型」交叉矩阵形式展示各数据源已入库的记录数量。每行代表一个数据源（Space-Track、UCS、ESA-DISCOS），每列代表一种目标类型（载荷/碎片/箭体/未知），末列为合计。</p>
+  <p>矩阵下方显示融合后的数据源总数和总目标数。如果某个数据源的计数为 0，说明该数据源尚未完成数据摄入。</p>
+  <p>展开「补充统计数据源」可查看 GCAT 和 UNOOSA 的聚合统计记录数。</p>
+</div>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>概览面板的数据每 60 秒自动刷新一次。如果您刚完成数据摄入操作，稍等片刻即可看到更新的统计数字。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

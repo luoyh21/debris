@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>发射碰撞风险 API · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub active">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>发射碰撞风险预测</h1>
+
+<div class="endpoint">
+  <span class="method method-post">POST</span>
+  <span class="path">/api/v1/launch/risk</span>
+</div>
+
+<p><span class="tag tag-scene">适用场景</span> 模拟火箭发射全过程（6-DOF 轨迹仿真），并对各飞行阶段进行碎片碰撞概率评估。集成了轨迹仿真、碎片检索、TCA 求解、Foster Pc 计算的全链路流程。</p>
+
+<div class="info-box">
+  ⚠️ <strong>注意：</strong>此接口计算量较大，响应时间通常需要 10–60 秒。适合后台调用或允许较长等待的场景。
+</div>
+
+<h2>请求参数</h2>
+<table>
+  <tr><th>参数名</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr>
+  <tr><td><code>vehicle</code></td><td>string</td><td>否</td><td>"CZ-5B"</td><td>运载火箭型号：CZ-5B / Falcon9 / Ariane6</td></tr>
+  <tr><td><code>launch_lat_deg</code></td><td>float</td><td>否</td><td>19.61</td><td>发射场纬度 (°)</td></tr>
+  <tr><td><code>launch_lon_deg</code></td><td>float</td><td>否</td><td>110.95</td><td>发射场经度 (°)</td></tr>
+  <tr><td><code>launch_az_deg</code></td><td>float</td><td>否</td><td>90</td><td>发射方位角 (°)，0=正北，90=正东</td></tr>
+  <tr><td><code>launch_utc</code></td><td>string</td><td>否</td><td>明日 06:00</td><td>发射时间 ISO-8601 UTC</td></tr>
+  <tr><td><code>t_max_s</code></td><td>float</td><td>否</td><td>3600</td><td>仿真最长时间 (秒)，600–7200</td></tr>
+  <tr><td><code>include_demo_threats</code></td><td>bool</td><td>否</td><td>true</td><td>是否包含演示用合成碎片目标</td></tr>
+</table>
+
+<h2>响应字段</h2>
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>assumed_params</code></td><td>object</td><td>系统自动推断或默认的参数值</td></tr>
+  <tr><td><code>vehicle_used</code></td><td>string</td><td>实际使用的火箭预设名称</td></tr>
+  <tr><td><code>trajectory</code></td><td>object</td><td>关键时刻的高度/速度/质量摘要</td></tr>
+  <tr><td><code>phases</code></td><td>array</td><td>各飞行阶段的风险评估结果</td></tr>
+  <tr><td><code>phases[].name</code></td><td>string</td><td>阶段名称（ASCENT/PARKING_ORBIT/TRANSFER_BURN/POST_SEPARATION）</td></tr>
+  <tr><td><code>phases[].duration_s</code></td><td>float</td><td>阶段持续秒数</td></tr>
+  <tr><td><code>phases[].candidates</code></td><td>int</td><td>空间预筛选的候选碎片数</td></tr>
+  <tr><td><code>phases[].max_pc</code></td><td>float</td><td>该阶段最大碰撞概率</td></tr>
+  <tr><td><code>phases[].risk_level</code></td><td>string</td><td>风险等级：GREEN / YELLOW / AMBER / RED</td></tr>
+  <tr><td><code>top_events</code></td><td>array</td><td>最高 Pc 的前 10 条合取事件</td></tr>
+  <tr><td><code>overall_risk</code></td><td>string</td><td>整体风险等级</td></tr>
+  <tr><td><code>overall_risk_cn</code></td><td>string</td><td>整体风险等级（中文）</td></tr>
+  <tr><td><code>max_pc</code></td><td>float</td><td>全轨迹最大 Pc 值</td></tr>
+  <tr><td><code>recommendation</code></td><td>string</td><td>中文规避建议</td></tr>
+  <tr><td><code>caveats</code></td><td>array</td><td>假设和限制说明列表</td></tr>
+</table>
+
+<h2>curl 示例</h2>
+<pre><code>curl -X POST http://&lt;your-host&gt;:8000/api/v1/launch/risk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vehicle": "CZ-5B",
+    "launch_lat_deg": 19.61,
+    "launch_lon_deg": 110.95,
+    "launch_az_deg": 90,
+    "launch_utc": "2026-04-20T06:00:00",
+    "t_max_s": 3600,
+    "include_demo_threats": true
+  }'</code></pre>
+
+<h2>响应示例</h2>
+<pre><code>{
+  "assumed_params": {
+    "vehicle": "CZ-5B",
+    "launch_lat": 19.61,
+    "launch_lon": 110.95,
+    "azimuth_deg": 90,
+    "launch_utc": "2026-04-20T06:00:00+00:00"
+  },
+  "vehicle_used": "CZ-5B",
+  "trajectory": {
+    "max_alt_km": 412.7,
+    "max_speed_kms": 7.68,
+    "final_mass_kg": 22800
+  },
+  "phases": [
+    {
+      "name": "ASCENT",
+      "duration_s": 480,
+      "candidates": 12,
+      "max_pc": 2.1e-8,
+      "risk_level": "GREEN"
+    },
+    {
+      "name": "PARKING_ORBIT",
+      "duration_s": 1200,
+      "candidates": 85,
+      "max_pc": 1.3e-5,
+      "risk_level": "AMBER"
+    }
+  ],
+  "top_events": [
+    {
+      "norad_cat_id": 41335,
+      "object_name": "COSMOS 2251 DEB",
+      "phase": "PARKING_ORBIT",
+      "tca_utc": "2026-04-20T06:18:42Z",
+      "miss_distance_km": 0.84,
+      "pc": 1.3e-5,
+      "v_rel_kms": 10.2
+    }
+  ],
+  "overall_risk": "AMBER",
+  "overall_risk_cn": "中高风险",
+  "max_pc": 1.3e-5,
+  "max_pc_sci": "1.300e-05",
+  "recommendation": "停泊轨道段检测到中高风险合取事件，建议调整发射时刻偏移 ±5 分钟或使用 LCOLA 扫描安全窗口。",
+  "caveats": [
+    "轨迹基于 6-DOF 参数化模型，非精确设计轨迹",
+    "碎片位置基于 SGP4 传播，误差随 TLE 年龄增大"
+  ]
+}</code></pre>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

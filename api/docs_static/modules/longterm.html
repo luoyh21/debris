@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>长期风险评估 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm" class="active">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>长期风险评估</h1>
+<p><span class="tag tag-scene">场景</span> 评估一颗卫星在其运营寿命期间（数年到数十年）的累积碰撞风险。回答「在某个轨道高度运营卫星 N 年，碰撞概率有多高？需要预留多少规避燃料？」</p>
+<p>与碰撞风险评估（针对单次发射）不同，长期风险评估关注的是卫星在轨运营期间的<strong>统计性碰撞累积风险</strong>，基于实际碎片环境密度和泊松随机过程进行蒙特卡洛模拟。</p>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「长期风险评估」</strong></li>
+  <li>设置轨道参数（高度、倾角）和任务参数（运营年限、卫星截面积等）</li>
+  <li>点击 <strong>「运行评估」</strong> 按钮</li>
+  <li>系统从数据库提取目标轨道高度附近的碎片环境数据</li>
+  <li>运行蒙特卡洛模拟，计算累积碰撞概率</li>
+  <li>查看输出指标和图表</li>
+</ol>
+
+<h2 id="params">输入参数</h2>
+<table>
+  <tr><th>参数</th><th>说明</th><th>默认值</th><th>调整建议</th></tr>
+  <tr><td><strong>轨道高度 (km)</strong></td><td>卫星运营轨道的平均高度</td><td>800 km</td><td>LEO: 300–2000, MEO: 2000–35000</td></tr>
+  <tr><td><strong>轨道倾角 (°)</strong></td><td>轨道面与赤道面的夹角</td><td>53°</td><td>SSO: ~97°, Starlink: ~53°</td></tr>
+  <tr><td><strong>运营年限</strong></td><td>卫星设计寿命</td><td>5 年</td><td>通常 3–15 年</td></tr>
+  <tr><td><strong>交会距离阈值 (km)</strong></td><td>定义「接近」的距离标准</td><td>2 km</td><td>1–10 km</td></tr>
+  <tr><td><strong>卫星截面积 (m²)</strong></td><td>卫星碰撞截面积</td><td>10 m²</td><td>小卫星 1–3, 大卫星 20–50</td></tr>
+  <tr><td><strong>高度搜索带宽 (km)</strong></td><td>搜索碎片环境的高度范围</td><td>200 km</td><td>轨道越扁越应加宽</td></tr>
+</table>
+
+<h2 id="result">输出结果</h2>
+
+<div class="feature">
+  <h4>📊 核心指标卡片</h4>
+  <span class="tag tag-output">指标</span>
+  <p style="margin-top:10px">页面顶部显示四到六个核心指标：</p>
+  <table>
+    <tr><th>指标</th><th>含义</th></tr>
+    <tr><td><strong>年碰撞率</strong></td><td>每年发生碰撞的期望次数（基于通量密度和截面积）</td></tr>
+    <tr><td><strong>累积碰撞概率</strong></td><td>任务寿命期内至少发生一次碰撞的概率（泊松模型）</td></tr>
+    <tr><td><strong>风险等级</strong></td><td>极低/低/中等/高/极高，基于 Pc 阈值分级</td></tr>
+    <tr><td><strong>预期接近次数</strong></td><td>任务期间通过距离阈值内的碎片次数</td></tr>
+    <tr><td><strong>规避燃料预算</strong></td><td>建议预留的 ΔV 和推进剂质量（基于预期规避次数）</td></tr>
+  </table>
+</div>
+
+<div class="feature">
+  <h4>📈 累积碰撞概率曲线</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">展示碰撞概率随任务年限的增长曲线。包含两条线：</p>
+  <ul>
+    <li><strong>蓝色实线（>10 cm 可追踪碎片）：</strong>基于数据库中可追踪碎片的 Pc 累积曲线，这是可以通过规避机动应对的风险</li>
+    <li><strong>红色虚线（>1 cm 全部碎片）：</strong>包含不可追踪小碎片的 ORDEM 通量估计，是理论上限</li>
+  </ul>
+  <p>图中的水平参考线标记了 10⁻⁵（触发阈值）和 10⁻⁴（高风险阈值）。</p>
+</div>
+
+<div class="feature">
+  <h4>📉 碎片环境密度分析</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">展示目标轨道高度附近的碎片空间密度分布、按类型的碎片数量统计，以及与 NASA ORDEM 3.1 通量模型的对比。</p>
+</div>
+
+<h2>风险等级说明</h2>
+<table>
+  <tr><th>等级</th><th>累积 Pc 范围</th><th>含义</th></tr>
+  <tr><td><strong>极低风险</strong></td><td>Pc &lt; 10⁻⁶</td><td>碰撞概率极小，无需特别关注</td></tr>
+  <tr><td><strong>低风险</strong></td><td>10⁻⁶ ≤ Pc &lt; 10⁻⁵</td><td>碰撞概率较低，建议配备基本规避能力</td></tr>
+  <tr><td><strong>中等风险</strong></td><td>10⁻⁵ ≤ Pc &lt; 10⁻⁴</td><td>需要认真对待，建议具备规避机动能力和充足燃料</td></tr>
+  <tr><td><strong>高风险</strong></td><td>10⁻⁴ ≤ Pc &lt; 10⁻³</td><td>风险显著，强烈建议配备自主规避系统和额外燃料冗余</td></tr>
+  <tr><td><strong>极高风险</strong></td><td>Pc ≥ 10⁻³</td><td>风险极高，建议重新考虑轨道设计或增加防护措施</td></tr>
+</table>
+
+<h2>参数调整建议</h2>
+
+<div class="feature">
+  <h4>💡 如何降低长期碰撞风险</h4>
+  <p>如果评估结果显示风险偏高，可以考虑以下调整：</p>
+  <ul>
+    <li><strong>调整轨道高度：</strong>避开碎片密度最高的高度带（如 750–900 km）</li>
+    <li><strong>缩短运营年限：</strong>碰撞概率随时间近似线性增长，缩短寿命可显著降低风险</li>
+    <li><strong>减小卫星截面积：</strong>碰撞概率与截面积成正比</li>
+    <li><strong>选择低密度轨道倾角：</strong>太阳同步轨道（~97°）碎片密度较高，可考虑略微偏离</li>
+    <li><strong>增加规避燃料预算：</strong>确保有足够的 ΔV 应对预期的接近事件</li>
+  </ul>
+</div>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>长期风险评估也可通过 AI 助手调用。尝试输入「我计划在 800km 高度（倾角 53°）运营一颗卫星，寿命 5 年，预测碰撞风险和建议规避燃料预算」。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

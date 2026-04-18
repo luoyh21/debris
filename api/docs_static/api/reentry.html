@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>再入预报 API · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub active">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>再入预报</h1>
+
+<div class="endpoint">
+  <span class="method method-post">POST</span>
+  <span class="path">/api/v1/debris/reentry</span>
+</div>
+
+<p><span class="tag tag-scene">适用场景</span> 预测即将再入大气层的空间目标。基于 Space-Track 提供的 decay_date（确认再入日期）和近地点高度进行筛选，帮助跟踪可能产生地面风险的大型碎片和箭体再入事件。</p>
+
+<h2>请求参数</h2>
+<table>
+  <tr><th>参数名</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr>
+  <tr><td><code>days_ahead</code></td><td>float</td><td>否</td><td>30</td><td>预报窗口天数，1–365</td></tr>
+  <tr><td><code>alt_max_km</code></td><td>float</td><td>否</td><td>300</td><td>近地点高度阈值 (km)——低于此值且无确认 decay_date 的目标也会被纳入</td></tr>
+  <tr><td><code>object_type</code></td><td>string</td><td>否</td><td>"ALL"</td><td>目标类型过滤：ALL / DEBRIS / PAYLOAD / ROCKET BODY</td></tr>
+  <tr><td><code>limit</code></td><td>int</td><td>否</td><td>50</td><td>最大返回条数，1–200</td></tr>
+</table>
+
+<h2>响应字段</h2>
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>window</code></td><td>object</td><td>查询参数回显（预报天数、高度阈值、时间范围）</td></tr>
+  <tr><td><code>count</code></td><td>int</td><td>匹配总数量</td></tr>
+  <tr><td><code>showing</code></td><td>int</td><td>本次返回数量</td></tr>
+  <tr><td><code>objects</code></td><td>array</td><td>目标列表</td></tr>
+  <tr><td><code>objects[].norad_cat_id</code></td><td>int</td><td>NORAD 编号</td></tr>
+  <tr><td><code>objects[].name</code></td><td>string</td><td>目标名称</td></tr>
+  <tr><td><code>objects[].object_type</code></td><td>string</td><td>目标类型</td></tr>
+  <tr><td><code>objects[].country</code></td><td>string</td><td>国家代码</td></tr>
+  <tr><td><code>objects[].launch_date</code></td><td>string</td><td>发射日期 (ISO-8601)</td></tr>
+  <tr><td><code>objects[].decay_date</code></td><td>string|null</td><td>确认的再入日期（null 表示尚无确认日期）</td></tr>
+  <tr><td><code>objects[].days_to_reentry</code></td><td>float|null</td><td>距离再入的天数</td></tr>
+  <tr><td><code>objects[].perigee_km</code></td><td>float</td><td>近地点高度 (km)</td></tr>
+  <tr><td><code>objects[].apogee_km</code></td><td>float</td><td>远地点高度 (km)</td></tr>
+  <tr><td><code>objects[].inclination_deg</code></td><td>float</td><td>轨道倾角 (°)</td></tr>
+  <tr><td><code>summary</code></td><td>string</td><td>中文摘要</td></tr>
+</table>
+
+<h2>curl 示例</h2>
+<pre><code>curl -X POST http://&lt;your-host&gt;:8000/api/v1/debris/reentry \
+  -H "Content-Type: application/json" \
+  -d '{
+    "days_ahead": 30,
+    "alt_max_km": 300,
+    "object_type": "ROCKET BODY",
+    "limit": 20
+  }'</code></pre>
+
+<h2>响应示例</h2>
+<pre><code>{
+  "window": {
+    "days_ahead": 30,
+    "alt_max_km": 300,
+    "t_now_utc": "2026-04-18T10:00:00+00:00",
+    "t_end_utc": "2026-05-18T10:00:00+00:00"
+  },
+  "count": 8,
+  "showing": 8,
+  "objects": [
+    {
+      "norad_cat_id": 54321,
+      "name": "CZ-5B R/B",
+      "object_type": "ROCKET BODY",
+      "country": "PRC",
+      "launch_date": "2025-10-12",
+      "decay_date": "2026-04-25",
+      "days_to_reentry": 7.0,
+      "perigee_km": 172.3,
+      "apogee_km": 345.6,
+      "inclination_deg": 41.47
+    },
+    {
+      "norad_cat_id": 48765,
+      "name": "COSMOS 2558 DEB",
+      "object_type": "DEBRIS",
+      "country": "CIS",
+      "launch_date": "2022-08-01",
+      "decay_date": null,
+      "days_to_reentry": null,
+      "perigee_km": 198.5,
+      "apogee_km": 289.1,
+      "inclination_deg": 97.62
+    }
+  ],
+  "summary": "未来 30 天内预计再入 8 个目标：3 个有确认再入日期，5 个近地点 ≤ 300 km 的待再入目标。"
+}</code></pre>
+
+<div class="info-box">
+  💡 <strong>结果排序：</strong>有确认 decay_date 的目标排在前面（按日期升序），其次是无 decay_date 但近地点极低的目标（按近地点升序）。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

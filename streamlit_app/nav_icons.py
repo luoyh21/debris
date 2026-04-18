@@ -152,6 +152,11 @@ _ICONS: dict[str, str] = {
         '<circle cx="12" cy="12" r="8"/>'
         '<path d="M5 5l14 14"/>'
     ),
+    "docs": _svg(
+        '<path d="M4 4h10l4 4v12H4z"/>'
+        '<path d="M14 4v4h4"/>'
+        '<path d="M7 13h8M7 16h5M7 10h3"/>'
+    ),
 }
 
 _RISK_FILL = {

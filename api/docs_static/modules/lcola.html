@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LCOLA 飞越筛选 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola" class="active">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>LCOLA 飞越筛选</h1>
+<p><span class="tag tag-scene">场景</span> 为发射任务找到最安全的发射时刻——在一段时间窗口内扫描所有候选发射时刻，找出哪些时刻会触发碎片碰撞风险（禁发窗口），推荐安全发射时段。</p>
+
+<div class="info-box">
+  ⚡ <strong>前置条件：</strong>LCOLA 飞越筛选需要使用轨迹仿真的结果。请先在 <a href="/docs/modules/simulation">轨迹仿真</a> 页面运行仿真并生成轨迹数据。
+</div>
+
+<h2>LCOLA 是什么</h2>
+<p><strong>LCOLA</strong>（Launch Collision Avoidance）是发射碰撞规避分析的简称。其核心思想是：对于一个确定的发射轨迹模板，通过微调发射时刻（前后偏移几十分钟），火箭到达各空间位置的时间会发生变化，从而改变与在轨碎片的空间关系。LCOLA 筛选通过逐时刻评估碰撞概率，找出所有会产生高碰撞风险的发射时刻（禁发窗口），帮助规划人员选择安全时刻发射。</p>
+
+<h2>与碰撞风险评估的区别</h2>
+<div class="feature">
+  <h4>两个模块互补，不可替代</h4>
+  <table>
+    <tr><th>对比项</th><th>LCOLA 飞越筛选</th><th>碰撞风险评估</th></tr>
+    <tr><td><strong>核心问题</strong></td><td>窗口内什么时候可以安全发射？</td><td>选定时刻的碰撞风险有多高？</td></tr>
+    <tr><td><strong>输入</strong></td><td>轨迹模板 + 时间窗口范围</td><td>轨迹模板 + 固定发射时刻</td></tr>
+    <tr><td><strong>输出</strong></td><td>禁发窗口列表 + 安全窗口列表</td><td>各飞行阶段的 Pc 值和风险等级</td></tr>
+    <tr><td><strong>评估数量</strong></td><td>数十到数百个候选时刻</td><td>单一时刻</td></tr>
+    <tr><td><strong>计算耗时</strong></td><td>较长（后台运行）</td><td>较短</td></tr>
+  </table>
+</div>
+
+<h2 id="scan">使用流程</h2>
+<ol class="steps">
+  <li><strong>加载轨迹：</strong>确保已在 <a href="/docs/modules/simulation">轨迹仿真</a> 页面运行仿真。返回 LCOLA 页面后，系统自动加载当前轨迹。</li>
+  <li><strong>设置筛选参数：</strong>在「筛选配置」面板中调整窗口宽度、步长、HBR 等参数。</li>
+  <li><strong>启动筛选：</strong>点击 <strong>「开始飞越筛选（后台运行）」</strong>。筛选在后台执行，您可以切换到其他页面，完成后右上角会弹出通知。</li>
+  <li><strong>查看结果：</strong>返回 LCOLA 页面，查看禁发窗口、安全窗口和高风险合取事件。</li>
+</ol>
+
+<h2>筛选参数</h2>
+<table>
+  <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+  <tr><td><strong>载人任务</strong></td><td>勾选后 Pc 门限从 10⁻⁵ 降低到 10⁻⁶（更严格）</td><td>未勾选</td></tr>
+  <tr><td><strong>联合硬体半径 HBR (m)</strong></td><td>火箭和碎片的外接球半径之和</td><td>20 m</td></tr>
+  <tr><td><strong>窗口宽度（分钟）</strong></td><td>以标称发射时刻为中心，向前后各扩展的时间范围</td><td>±30 分钟</td></tr>
+  <tr><td><strong>筛选步长（秒）</strong></td><td>相邻两个候选发射时刻之间的间隔</td><td>60 秒</td></tr>
+  <tr><td><strong>注入演示威胁</strong></td><td>注入合成的禁发窗口用于演示。碎片数据库较小时推荐开启</td><td>开启</td></tr>
+</table>
+
+<div class="info-box">
+  💡 <strong>耗时预估：</strong>页面会自动估算本次筛选需要评估多少个候选时刻及预计耗时。例如 ±30 分钟窗口、60 秒步长 = 61 个候选时刻，在碎片数据库已填充时约需 15–60 秒。步长越小精度越高但耗时越长。
+</div>
+
+<h2 id="blackout">结果解读</h2>
+
+<div class="feature">
+  <h4>📈 Pc 时间曲线</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">横轴为相对于标称发射时刻的偏移量（秒），纵轴为该时刻发射对应的最大碰撞概率 (Pc)。红色阴影区域标记了超过 Pc 门限的禁射时段。</p>
+</div>
+
+<div class="feature">
+  <h4>🚫 禁射窗口（Blackout Windows）</h4>
+  <span class="tag tag-output">数据表</span>
+  <p style="margin-top:10px">列出所有被标记为禁发的时间段。每个窗口包含开始时间(UTC)、结束时间(UTC)和持续时长(分钟)。如果窗口内无禁射时段，将显示「全时段可发射」。</p>
+</div>
+
+<div class="feature">
+  <h4>安全发射窗口（Safe Windows）</h4>
+  <span class="tag tag-output">数据表</span>
+  <p style="margin-top:10px">禁射窗口之外的连续安全时段。任务规划人员应从这些窗口中选择发射时刻。</p>
+</div>
+
+<div class="feature">
+  <h4>高风险合取事件（Top 50）</h4>
+  <span class="tag tag-output">数据表</span>
+  <p style="margin-top:10px">按碰撞概率 (Pc) 降序排列的前 50 条合取事件。每条记录包含：</p>
+  <table>
+    <tr><th>字段</th><th>含义</th></tr>
+    <tr><td><strong>风险等级</strong></td><td>RED / AMBER / YELLOW / GREEN</td></tr>
+    <tr><td><strong>NORAD ID</strong></td><td>碎片的编号（合成威胁显示为「合成 #n」）</td></tr>
+    <tr><td><strong>目标名称</strong></td><td>碎片名称</td></tr>
+    <tr><td><strong>飞行阶段</strong></td><td>碰撞发生在哪个飞行阶段</td></tr>
+    <tr><td><strong>TCA (UTC)</strong></td><td>最近接时刻</td></tr>
+    <tr><td><strong>最近距离 (km)</strong></td><td>两目标间的最小距离</td></tr>
+    <tr><td><strong>Foster Pc</strong></td><td>碰撞概率，科学计数法</td></tr>
+    <tr><td><strong>相对速度 (km/s)</strong></td><td>相遇时的相对速度</td></tr>
+    <tr><td><strong>偏移量 (s)</strong></td><td>相对于标称发射时刻的偏移量</td></tr>
+  </table>
+</div>
+
+<div class="feature">
+  <h4>📊 按飞行阶段统计</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">柱状图展示各飞行阶段（上升段/停泊轨道段等）的合取事件数量，帮助判断哪个阶段的碰撞风险最集中。</p>
+</div>
+
+<div class="info-box">
+  💡 <strong>后台运行说明：</strong>LCOLA 筛选在后台线程中执行，您可以在计算过程中切换到其他页面继续工作。侧边栏会显示当前计算进度，完成后右上角弹出通知。如需中途取消，点击「取消」按钮。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

@@ -34,6 +34,10 @@ openai>=1.30
 fastmcp>=0.1
 mcp>=1.0
 
+# REST API
+fastapi>=0.111
+uvicorn[standard]>=0.29
+
 # Async & utilities
 aiohttp>=3.9
 asyncio-throttle>=1.0

@@ -22,6 +22,6 @@ COPY . .
 # Streamlit / run.py expect project root on PYTHONPATH
 ENV PYTHONPATH=/app
 
-EXPOSE 8501
+EXPOSE 8501 8000
 
 CMD ["python", "run.py", "app", "--port", "8501"]

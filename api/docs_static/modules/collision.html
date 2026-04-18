@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>碰撞风险评估 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision" class="active">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>碰撞风险评估</h1>
+<p><span class="tag tag-scene">场景</span> 对于一个已确定的发射时刻，评估火箭飞行各阶段各有多高的碰撞风险——回答「选定时刻的碰撞风险有多高，哪个阶段最危险」。</p>
+
+<div class="info-box">
+  ⚡ <strong>前置条件：</strong>碰撞风险评估需要使用轨迹仿真的结果。请先在 <a href="/docs/modules/simulation">轨迹仿真</a> 页面运行仿真并生成轨迹数据。
+</div>
+
+<h2 id="phases">工作原理</h2>
+<p>固定发射时刻后，系统将完整飞行轨迹划分为上升段、停泊轨道段等阶段，逐阶段与在轨碎片进行以下计算流程：</p>
+<ol class="steps">
+  <li><strong>空间预筛选：</strong>使用 PostGIS 空间索引进行粗筛，选出轨迹附近的候选碎片（粗筛距离可配置）</li>
+  <li><strong>SGP4 传播：</strong>将候选碎片的 TLE 传播到飞行时刻，获取精确位置</li>
+  <li><strong>TCA 求解：</strong>通过三次样条插值求解火箭与每个碎片的最近接时刻 (Time of Closest Approach)</li>
+  <li><strong>Foster Pc 计算：</strong>在交汇平面上进行 2D 数值积分，计算碰撞概率</li>
+  <li><strong>风险定级：</strong>根据 Pc 值划分风险等级，输出评估报告</li>
+</ol>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>确保已在 <a href="/docs/modules/simulation">轨迹仿真</a> 中运行仿真</li>
+  <li>在左侧导航栏点击 <strong>「碰撞风险」</strong></li>
+  <li>在「评估参数」面板中调整联合硬体半径、筛选距离等参数</li>
+  <li>点击 <strong>「开始碰撞风险评估」</strong></li>
+  <li>等待评估完成，查看各阶段风险摘要和详细合取事件表</li>
+</ol>
+
+<h2>评估参数</h2>
+<table>
+  <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+  <tr><td><strong>联合硬体半径 HBR (m)</strong></td><td>火箭 + 碎片外接球半径之和。Pc 计算的关键输入。</td><td>20 m</td></tr>
+  <tr><td><strong>载人任务</strong></td><td>勾选后 Pc 门限从 10⁻⁵ 提高到 10⁻⁶（更严格标准）</td><td>未勾选</td></tr>
+  <tr><td><strong>精细筛选距离 (km)</strong></td><td>在此距离内执行完整的 Foster Pc 计算</td><td>50 km</td></tr>
+  <tr><td><strong>粗筛距离 (km)</strong></td><td>在此距离内纳入 TCA 求解候选池</td><td>200 km</td></tr>
+  <tr><td><strong>注入演示威胁</strong></td><td>注入三条合成合取事件用于演示。碎片数据库较小时推荐开启</td><td>开启</td></tr>
+</table>
+
+<h2 id="risk">风险等级含义</h2>
+<table>
+  <tr><th>等级</th><th>标记</th><th>Pc 范围</th><th>含义</th><th>建议操作</th></tr>
+  <tr><td><strong>GREEN</strong></td><td>🟢</td><td>Pc &lt; 10⁻⁷</td><td>极低风险，无需关注</td><td>正常发射</td></tr>
+  <tr><td><strong>YELLOW</strong></td><td>🟡</td><td>10⁻⁷ ≤ Pc &lt; 10⁻⁵</td><td>低至中等风险</td><td>关注但通常可接受</td></tr>
+  <tr><td><strong>AMBER</strong></td><td>🟠</td><td>10⁻⁵ ≤ Pc &lt; 10⁻⁴</td><td>中高风险，超过非载人门限</td><td>建议调整发射时刻或方位角</td></tr>
+  <tr><td><strong>RED</strong></td><td>🔴</td><td>Pc ≥ 10⁻⁴</td><td>高风险，必须规避</td><td>必须更换发射窗口</td></tr>
+</table>
+
+<h2>输出结果</h2>
+
+<div class="feature">
+  <h4>📋 任务摘要</h4>
+  <span class="tag tag-output">文字</span>
+  <p style="margin-top:10px">页面顶部显示当前评估的基本信息：运载火箭型号、发射场坐标、发射时刻 (T0)、Pc 门限。</p>
+</div>
+
+<div class="feature">
+  <h4>📊 各阶段风险摘要</h4>
+  <span class="tag tag-output">数据表 + 指标卡片</span>
+  <p style="margin-top:10px">为每个飞行阶段（上升段、停泊轨道段等）显示：</p>
+  <ul>
+    <li>风险等级标记（GREEN/YELLOW/AMBER/RED）</li>
+    <li>最大碰撞概率 (Max Pc)</li>
+    <li>候选碎片数量</li>
+    <li>检测到的合取事件数</li>
+    <li>飞行时长和高度范围</li>
+  </ul>
+</div>
+
+<div class="feature">
+  <h4>⚠️ TOP 10 合取事件详表</h4>
+  <span class="tag tag-output">数据表</span>
+  <p style="margin-top:10px">按 Pc 降序排列的前 10 条（或更多）合取事件，每条包含：</p>
+  <table>
+    <tr><th>字段</th><th>含义</th></tr>
+    <tr><td>风险等级</td><td>RED / AMBER / YELLOW / GREEN</td></tr>
+    <tr><td>NORAD ID</td><td>碎片编号（合成威胁显示为「合成 #n」）</td></tr>
+    <tr><td>飞行阶段</td><td>碰撞发生在哪个飞行阶段（已翻译为中文）</td></tr>
+    <tr><td>TCA (UTC)</td><td>最近接时刻</td></tr>
+    <tr><td>最近距离 (km)</td><td>火箭与碎片间的最小距离</td></tr>
+    <tr><td>Foster Pc</td><td>碰撞概率，科学计数法表示</td></tr>
+    <tr><td>相对速度 (km/s)</td><td>相遇时的相对速度，越高碰撞动能越大</td></tr>
+  </table>
+</div>
+
+<div class="feature">
+  <h4>💡 规避建议</h4>
+  <span class="tag tag-output">文字</span>
+  <p style="margin-top:10px">根据评估结果，系统自动生成规避建议。如果整体风险为 GREEN，建议正常发射；如果出现 AMBER 或 RED，会建议调整发射时刻（推荐使用 <a href="/docs/modules/lcola">LCOLA 飞越筛选</a> 找安全窗口）或调整发射方位角。</p>
+</div>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>如果评估结果显示高风险，建议前往 <a href="/docs/modules/lcola">LCOLA 飞越筛选</a> 扫描整个发射窗口，找到所有安全发射时刻。两个模块配合使用效果最佳。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

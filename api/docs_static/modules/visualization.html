@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>可视化探索 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization" class="active">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>可视化探索</h1>
+<p><span class="tag tag-scene">场景</span> 通过沉浸式 3D 地球可视化，实时观察空间碎片在轨运动、探索不同高度层的目标分布、追踪单个目标的轨道预报，以及搜索特定区域内的碎片。</p>
+<p>可视化探索是系统中信息最丰富的模块，包含四个功能标签页，覆盖从宏观态势到微观追踪的全部需求。</p>
+
+<hr>
+
+<h2 id="global">标签页一：全球碎片态势</h2>
+
+<div class="feature">
+  <h4>🌍 正射球面实时碎片动画</h4>
+  <span class="tag tag-scene">宏观态势</span>
+  <span class="tag tag-output">3D 动画</span>
+  <p style="margin-top:10px">在一个可交互的正射球面投影上，实时展示碎片在地球表面的星下点运动轨迹。打开该标签页后，动画将自动播放，无需手动启动。</p>
+</div>
+
+<h3>使用步骤</h3>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「可视化探索」</strong>，默认进入第一个标签页</li>
+  <li>页面加载后，3D 地球将自动旋转并展示碎片的实时位置点</li>
+  <li>使用鼠标<strong>拖动</strong>旋转地球视角，<strong>滚轮</strong>缩放</li>
+  <li>利用侧边栏的筛选控件调整显示范围</li>
+</ol>
+
+<h3>筛选参数</h3>
+<table>
+  <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+  <tr><td><strong>高度范围</strong></td><td>仅显示近地点/远地点在指定范围内的目标</td><td>0–2,000 km</td></tr>
+  <tr><td><strong>目标类型</strong></td><td>选择显示碎片、载荷、箭体或全部</td><td>全部</td></tr>
+  <tr><td><strong>最大显示数量</strong></td><td>限制同时显示的目标数量以保持流畅度</td><td>2,000</td></tr>
+</table>
+
+<h3>图例说明</h3>
+<p>球面上每个点代表一个在轨目标的当前星下点位置。不同颜色通常对应不同高度层或目标类型。碎片密集区域（如 LEO 带）会呈现出明显的带状分布。</p>
+
+<hr>
+
+<h2 id="drilldown">标签页二：高度分层下钻</h2>
+
+<div class="feature">
+  <h4>🏗️ 3D 地球 + 轨道层分层视图</h4>
+  <span class="tag tag-scene">分层分析</span>
+  <span class="tag tag-output">3D 交互</span>
+  <p style="margin-top:10px">将轨道空间划分为多个高度层（VLEO / LEO / MEO / GEO 等），点击任意高度层即可查看该层内所有目标在 3D 球体上的分布。球体带有经纬线辅助定位，同样支持自动动画。</p>
+</div>
+
+<h3>使用步骤</h3>
+<ol class="steps">
+  <li>切换到第二个标签页 <strong>「高度分层下钻」</strong></li>
+  <li>页面显示轨道层列表和各层目标数量统计</li>
+  <li>点击感兴趣的轨道层（如 LEO 450–2000 km）进行下钻</li>
+  <li>3D 球体自动渲染该层内的目标分布，支持拖拽旋转和缩放</li>
+  <li>动画自动播放，展示碎片的轨道运动</li>
+</ol>
+
+<h3>高度层划分</h3>
+<table>
+  <tr><th>层级</th><th>高度范围</th><th>特征</th></tr>
+  <tr><td>VLEO</td><td>0–450 km</td><td>目标稀疏，大气阻力显著，衰减快</td></tr>
+  <tr><td>LEO</td><td>450–2,000 km</td><td>碎片密度最高，Starlink 集中区</td></tr>
+  <tr><td>MEO</td><td>2,000–33,786 km</td><td>导航卫星（GPS/北斗/Galileo）</td></tr>
+  <tr><td>GEO 带</td><td>~35,786 km ± 2,000</td><td>同步轨道通信/气象卫星</td></tr>
+  <tr><td>HEO</td><td>37,786–120,000 km</td><td>高椭圆轨道（闪电轨道等）</td></tr>
+</table>
+
+<hr>
+
+<h2 id="orbit">标签页三：目标轨道预报</h2>
+
+<div class="feature">
+  <h4>🛰️ 单目标轨道传播与 3D 可视化</h4>
+  <span class="tag tag-scene">目标追踪</span>
+  <span class="tag tag-action">SGP4 传播</span>
+  <span class="tag tag-output">3D 轨迹</span>
+  <p style="margin-top:10px">输入任意目标的 NORAD ID，系统将使用 SGP4/开普勒两体传播算法预测其未来轨道，并在 3D 地球上绘制完整的轨迹曲线。支持椭圆轨道和圆轨道的真实可视化。</p>
+</div>
+
+<h3>使用步骤</h3>
+<ol class="steps">
+  <li>切换到第三个标签页 <strong>「轨道预报」</strong></li>
+  <li>在输入框中填写目标的 <strong>NORAD ID</strong>（如 25544 代表国际空间站）</li>
+  <li>设置传播时长（默认为一个轨道周期）</li>
+  <li>点击 <strong>「传播」</strong> 按钮</li>
+  <li>等待计算完成后，3D 地球上将显示完整的预报轨迹</li>
+</ol>
+
+<h3>输出内容</h3>
+<ul>
+  <li><strong>3D 轨迹曲线：</strong>目标在 ECI 坐标系中的完整轨迹，投射到 3D 球体上</li>
+  <li><strong>星下点轨迹：</strong>目标在地球表面的投影路径</li>
+  <li><strong>轨道参数：</strong>周期、倾角、近地点/远地点高度等</li>
+  <li><strong>OEM 导出：</strong>可导出标准 OEM 格式文件，用于外部工具对接</li>
+</ul>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>如果不知道目标的 NORAD ID，可以先到 <a href="/docs/modules/catalog">目标目录</a> 中按名称搜索，找到编号后再返回此处。
+</div>
+
+<hr>
+
+<h2 id="search">标签页四：区域碎片搜索</h2>
+
+<div class="feature">
+  <h4>📍 地理位置附近碎片搜索</h4>
+  <span class="tag tag-scene">区域分析</span>
+  <span class="tag tag-action">空间查询</span>
+  <span class="tag tag-output">目标列表</span>
+  <p style="margin-top:10px">指定一个地理坐标（如发射场位置），搜索该位置上空一定范围内的所有在轨空间目标。适用于发射前的空域安全评估或特定区域的态势监控。</p>
+</div>
+
+<h3>使用步骤</h3>
+<ol class="steps">
+  <li>切换到第四个标签页 <strong>「区域碎片搜索」</strong></li>
+  <li>输入搜索中心的<strong>纬度</strong>和<strong>经度</strong>（如文昌发射场：19.61°N, 110.95°E）</li>
+  <li>设置<strong>搜索半径</strong>（km）和<strong>高度范围</strong></li>
+  <li>选择目标类型筛选条件</li>
+  <li>点击 <strong>「搜索」</strong>，查看结果列表</li>
+</ol>
+
+<h3>搜索参数</h3>
+<table>
+  <tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+  <tr><td><strong>纬度 (°)</strong></td><td>搜索中心的纬度</td><td>19.61（文昌）</td></tr>
+  <tr><td><strong>经度 (°)</strong></td><td>搜索中心的经度</td><td>110.95（文昌）</td></tr>
+  <tr><td><strong>搜索半径 (km)</strong></td><td>从中心点向外的搜索范围</td><td>500</td></tr>
+  <tr><td><strong>高度范围 (km)</strong></td><td>仅搜索指定高度区间内的目标</td><td>0–2,000</td></tr>
+  <tr><td><strong>目标类型</strong></td><td>ALL / DEBRIS / PAYLOAD / ROCKET BODY</td><td>ALL</td></tr>
+  <tr><td><strong>时间窗口</strong></td><td>搜索时间范围</td><td>当前 + 6 小时</td></tr>
+</table>
+
+<h3>搜索结果</h3>
+<p>结果以表格形式展示，每行包含：NORAD ID、名称、类型、国家代码、近地点、远地点、倾角、偏心率、与搜索中心的近似距离(km)。</p>
+
+<div class="info-box">
+  💡 <strong>提示：</strong>区域搜索使用两种策略——当数据库中存在轨迹段数据时使用 PostGIS 空间索引快速查询，否则退化为 SGP4 实时传播逐目标计算。前者速度快但需要预先摄入轨迹数据，后者计算量较大但不依赖轨迹段。同样的功能也可通过 <a href="/docs/api/region">区域碎片查询 API</a> 以编程方式调用。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

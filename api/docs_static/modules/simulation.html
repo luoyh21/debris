@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>轨迹仿真 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
+    <a href="/docs/modules/simulation" class="active">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>轨迹仿真</h1>
+<p><span class="tag tag-scene">场景</span> 模拟火箭从发射到入轨的完整飞行过程，生成 6-DOF 轨迹数据，作为后续碰撞风险评估和 LCOLA 飞越筛选的输入。</p>
+<p>仿真基于 ECEF 坐标系的 6 自由度常微分方程（J2 引力 + USSA-76 大气阻力 + 推力矢量 + 重力转弯俯仰程序），生成高精度的火箭飞行轨迹。</p>
+
+<div class="info-box">
+  ⚡ <strong>重要：</strong>轨迹仿真是碰撞风险评估和 LCOLA 飞越筛选的<strong>前置步骤</strong>。请先在本页面运行仿真，生成轨迹数据后再前往对应模块。
+</div>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「轨迹仿真」</strong></li>
+  <li>在仿真参数表单中设置火箭型号、发射场坐标、方位角、发射时间等参数</li>
+  <li>点击 <strong>「运行仿真」</strong> 按钮</li>
+  <li>等待 5–20 秒（首次运行较慢），仿真完成后页面自动显示结果</li>
+  <li>查看飞行阶段摘要、高度/速度曲线、3D 轨迹等输出</li>
+  <li>仿真数据将自动保存到会话中，可直接跳转到碰撞风险评估或 LCOLA 页面</li>
+</ol>
+
+<h2 id="config">参数设置</h2>
+<table>
+  <tr><th>参数</th><th>说明</th><th>选项/默认值</th></tr>
+  <tr><td><strong>运载火箭</strong></td><td>选择预设火箭型号</td><td>CZ-5B（长征五号B）/ Falcon9（猎鹰九号）/ Ariane6（阿丽亚娜6号）</td></tr>
+  <tr><td><strong>发射时间 (UTC)</strong></td><td>发射时刻，ISO-8601 格式</td><td>如 <code>2026-04-15T06:00:00</code></td></tr>
+  <tr><td><strong>发射方位角 (°)</strong></td><td>发射方向，0°=正北，90°=正东</td><td>默认 90°（正东发射）</td></tr>
+  <tr><td><strong>发射场纬度 (°)</strong></td><td>发射场地理纬度</td><td>默认 19.61°（文昌）</td></tr>
+  <tr><td><strong>发射场经度 (°)</strong></td><td>发射场地理经度</td><td>默认 110.95°（文昌）</td></tr>
+  <tr><td><strong>仿真时长 (s)</strong></td><td>积分最长持续秒数</td><td>默认 3600 秒（1 小时）</td></tr>
+  <tr><td><strong>输出步长 (s)</strong></td><td>轨迹点的时间间隔</td><td>默认 10 秒</td></tr>
+</table>
+
+<div class="feature">
+  <h4>🏭 常用发射场参考坐标</h4>
+  <table>
+    <tr><th>发射场</th><th>纬度</th><th>经度</th></tr>
+    <tr><td>文昌航天发射场</td><td>19.61°N</td><td>110.95°E</td></tr>
+    <tr><td>酒泉卫星发射中心</td><td>40.96°N</td><td>100.29°E</td></tr>
+    <tr><td>西昌卫星发射中心</td><td>28.25°N</td><td>102.03°E</td></tr>
+    <tr><td>肯尼迪航天中心 (KSC)</td><td>28.57°N</td><td>-80.65°E</td></tr>
+    <tr><td>范登堡空军基地 (VAFB)</td><td>34.73°N</td><td>-120.57°E</td></tr>
+    <tr><td>库鲁航天中心 (CSG)</td><td>5.24°N</td><td>-52.77°E</td></tr>
+  </table>
+</div>
+
+<h2 id="result">输出结果</h2>
+
+<div class="feature">
+  <h4>📋 飞行阶段摘要</h4>
+  <span class="tag tag-output">数据表</span>
+  <p style="margin-top:10px">系统自动将飞行轨迹划分为多个阶段，并输出每个阶段的关键参数：</p>
+  <table>
+    <tr><th>阶段</th><th>英文名</th><th>说明</th></tr>
+    <tr><td><strong>上升段</strong></td><td>ASCENT</td><td>从发射到一级主发动机关机 (MECO1)</td></tr>
+    <tr><td><strong>停泊轨道段</strong></td><td>PARKING_ORBIT</td><td>滑行段，等待变轨窗口</td></tr>
+    <tr><td><strong>变轨推进段</strong></td><td>TRANSFER_BURN</td><td>二级发动机点火推入目标轨道</td></tr>
+    <tr><td><strong>分离后脱轨段</strong></td><td>POST_SEPARATION</td><td>载荷分离后的自由飞行</td></tr>
+  </table>
+  <p>每个阶段显示：MET 起止时间、近地点/远地点高度范围、平均速度、风险特征。</p>
+</div>
+
+<div class="feature">
+  <h4>📈 高度与速度曲线</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">两幅并排折线图展示火箭从发射到入轨全过程中的高度变化和速度变化。横轴为 MET（任务经过时间，秒），纵轴分别为高度 (km) 和速度 (km/s)。</p>
+</div>
+
+<div class="feature">
+  <h4>⚖️ 质量消耗曲线</h4>
+  <span class="tag tag-output">图表</span>
+  <p style="margin-top:10px">展示火箭总质量随时间的变化。阶梯式下降对应一级关机/级间分离事件。</p>
+</div>
+
+<div class="feature">
+  <h4>📄 状态向量数据表</h4>
+  <span class="tag tag-output">可展开</span>
+  <p style="margin-top:10px">展开「状态向量数据表」可查看前 100 行的详细数据：MET、高度、纬度、经度、ECI 速度分量 (vx, vy, vz)、质量。</p>
+</div>
+
+<div class="info-box">
+  💡 <strong>下一步：</strong>仿真完成后，您可以前往 <a href="/docs/modules/collision">碰撞风险评估</a> 评估固定发射时刻的碰撞风险，或前往 <a href="/docs/modules/lcola">LCOLA 飞越筛选</a> 扫描发射窗口中的安全时刻。
+</div>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>
