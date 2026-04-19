@@ -395,6 +395,8 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 > 以下步骤适用于 Windows 10/11，在 **PowerShell** 中执行。  
 > 全程不需要 Docker，数据库和虚拟环境都位于项目目录内。
 
+> **提示**：自带的 **Windows PowerShell 5.x** 不支持 `&&` 串连命令，请用分号 `;` 分行执行，或安装 [PowerShell 7+](https://github.com/PowerShell/PowerShell)（支持 `&&`）。
+
 ### 前置条件
 
 | 软件 | 版本 | 下载地址 |
@@ -408,9 +410,11 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 ### Step 1：克隆仓库
 
 ```powershell
-git clone https://github.com/<your-org>/space-debris-monitor.git
-cd space-debris-monitor
+git clone https://github.com/luoyh21/debris.git
+cd debris
 ```
+
+> 若你使用自己 fork 的地址，克隆后进入的文件夹名以仓库名为准（本仓库为 `debris`）。
 
 ### Step 2：创建 Python 虚拟环境（位于项目目录内）
 
@@ -426,7 +430,13 @@ pip install -r requirements.txt
 
 ### Step 3：配置 `.env`
 
-在项目根目录创建 `.env` 文件（可复制 `.env` 模板后修改）：
+在项目根目录创建 `.env`：将 **`.env.example` 复制为 `.env`** 后再编辑填入密钥（`.env` 已被 Git 忽略，不会提交）。
+
+```powershell
+copy .env.example .env
+```
+
+`.env` 示例内容：
 
 ```env
 # Space-Track 账号（免费注册 https://www.space-track.org/auth/createAccount）
@@ -456,12 +466,13 @@ ESA_DISCOS_TOKEN=
 
 ### Step 4：创建数据库
 
-打开 **pgAdmin** 或 **psql**（位于 PostgreSQL 安装目录的 bin 下）：
+打开 **pgAdmin** 或 **psql**（位于 PostgreSQL 安装目录的 `bin` 下；若未加入 PATH，可使用完整路径，如 `& "C:\Program Files\PostgreSQL\16\bin\psql.exe"`，版本号因安装而异）：
 
 ```powershell
-# 方法一：用 psql（需要将 PostgreSQL\bin 加入 PATH）
-psql -U postgres -c "CREATE DATABASE space_debris;"
-psql -U postgres -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+# 方法一：用 psql（需已登录同一 Windows 用户为 postgres 配置了认证，或设置环境变量 PGPASSWORD）
+$env:PGPASSWORD = "postgres"   # 与你在安装 Postgres 时设置的超级用户密码一致
+psql -U postgres -h localhost -c "CREATE DATABASE space_debris;"
+psql -U postgres -h localhost -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
 # 方法二：在 pgAdmin 图形界面中
 # 右键 Databases → Create → Database → 名称填 space_debris
@@ -559,10 +570,12 @@ python run.py api --port 8000
 
 ### 完整命令汇总（一键复制）
 
+以下按顺序逐段执行即可；若在 **PowerShell 5.x** 下请避免使用 `&&`（可改用分号或分行）。
+
 ```powershell
 # 1. 克隆 & 进入目录
-git clone https://github.com/<your-org>/space-debris-monitor.git
-cd space-debris-monitor
+git clone https://github.com/luoyh21/debris.git
+cd debris
 
 # 2. 创建虚拟环境
 python -m venv venv
@@ -570,11 +583,14 @@ python -m venv venv
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 3. 创建 .env（手动编辑填入你的 API 密钥）
+# 3. 配置环境变量
+copy .env.example .env
+# 用记事本或编辑器编辑 .env，填入 Space-Track / OpenAI 等
 
-# 4. 创建数据库
-psql -U postgres -c "CREATE DATABASE space_debris;"
-psql -U postgres -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+# 4. 创建数据库（密码与安装 PostgreSQL 时设置的超级用户一致）
+$env:PGPASSWORD = "postgres"
+psql -U postgres -h localhost -c "CREATE DATABASE space_debris;"
+psql -U postgres -h localhost -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
 # 5. 初始化表结构
 python run.py init-db
@@ -595,6 +611,7 @@ python run.py api --port 8000               # 终端 B：API + 文档 → http:/
 
 | 问题 | 解决方法 |
 |------|----------|
+| PowerShell 报 `&&` 不是有效语句分隔符 | 使用 PowerShell 7+，或把命令拆成多行 / 用分号 `;` 分隔 |
 | `psycopg2` 安装失败 | 改用 `pip install psycopg2-binary`，或安装 Visual C++ Build Tools |
 | `CREATE EXTENSION postgis` 失败 | PostgreSQL 安装时需通过 Stack Builder 额外安装 PostGIS |
 | Space-Track 登录失败 | 确认 `.env` 中账号密码正确，需在 space-track.org 注册 |
