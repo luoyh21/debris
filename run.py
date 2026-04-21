@@ -275,7 +275,7 @@ def main():
 
     # ── api ──────────────────────────────────────────────────────────────────
     p_api = sub.add_parser("api", help="Launch FastAPI docs & REST API server")
-    p_api.add_argument("--port", type=int, default=8000)
+    p_api.add_argument("--port", type=int, default=8502)
 
     args = parser.parse_args()
     dispatch = {

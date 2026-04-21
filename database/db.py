@@ -47,7 +47,12 @@ def get_engine():
             pool_size=5,
             max_overflow=10,
             pool_recycle=280,
-            connect_args={"connect_timeout": 5},
+            connect_args={
+                "connect_timeout": 5,
+                # 强制客户端用 UTF-8 编码，避免 Windows 中文系统（GBK）下
+                # psycopg2 解码 PostgreSQL 错误消息时抛出 UnicodeDecodeError
+                "client_encoding": "utf8",
+            },
         )
     return _engine
 

@@ -12,7 +12,8 @@ services:
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # 与项目根目录 .env 中 DB_PASSWORD 一致（compose 自动读取 .env）
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: space_debris
     ports:
       - "5432:5432"
@@ -20,7 +21,7 @@ services:
       - ./pgdata:/var/lib/postgresql/data
       - ./scripts/ensure_db.sh:/docker-entrypoint-initdb.d/ensure_db.sh
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d space_debris || (PGPASSWORD=postgres psql -U postgres -c \"SELECT 1 FROM pg_database WHERE datname='space_debris'\" | grep -q 1 || PGPASSWORD=postgres psql -U postgres -c \"CREATE DATABASE space_debris;\") && pg_isready -U postgres -d space_debris"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d space_debris || (PGPASSWORD=$$POSTGRES_PASSWORD psql -U postgres -c \"SELECT 1 FROM pg_database WHERE datname='space_debris'\" | grep -q 1 || PGPASSWORD=$$POSTGRES_PASSWORD psql -U postgres -c \"CREATE DATABASE space_debris;\") && pg_isready -U postgres -d space_debris"]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -37,7 +38,7 @@ services:
       DB_PORT: "5432"
       DB_NAME: space_debris
       DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
       # 显式绑定所有网卡，便于局域网/公网访问（勿写 127.0.0.1）
       - "0.0.0.0:8501:8501"
@@ -57,12 +58,12 @@ services:
       DB_PORT: "5432"
       DB_NAME: space_debris
       DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "0.0.0.0:8000:8000"
+      - "0.0.0.0:8502:8502"
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "run.py", "api", "--port", "8000"]
+    command: ["python", "run.py", "api", "--port", "8502"]
 
 # 数据库数据持久化在 ./pgdata 目录，删除该目录等同于清空数据库

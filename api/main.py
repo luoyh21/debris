@@ -1,6 +1,6 @@
 """FastAPI service exposing space-debris analysis tools as REST endpoints.
 
-Run standalone:  uvicorn api.main:app --host 0.0.0.0 --port 8000
+Run standalone:  uvicorn api.main:app --host 0.0.0.0 --port 8502
 In Docker:       integrated via run.py
 """
 from __future__ import annotations

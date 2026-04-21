@@ -1980,26 +1980,38 @@ def _render_layer_drilldown():
                 + (f"（当前渲染 {rendered:,} / {len(df3d):,}，已达渲染上限 {max_pts:,}）" if at_limit
                    else f"（当前渲染 {rendered:,}）")
             )
-            _ld_alt_min = float(cur["alt_min"])
-            _ld_alt_max = float(cur["alt_max"])
-            _ld_obj_type = obj_type_3d
-            _ld_limit = min(max_pts, 4000)
-            _ld_layer = cur
-
-            @st.fragment(run_every=timedelta(seconds=600))
-            def _ld_animated_3d():
-                t_n = datetime.now(timezone.utc)
-                rd = _compute_realtime_frames(
-                    t_base_iso=t_n.isoformat(),
-                    n_frames=60, step_s=10.0,
-                    alt_min=_ld_alt_min, alt_max=_ld_alt_max,
-                    obj_type=_ld_obj_type, limit=_ld_limit,
-                )
-                if rd.get("frames"):
-                    _render_realtime_3d(rd, layer=_ld_layer, height=680)
-                else:
-                    st.info("该轨道层暂无实时帧数据")
-            _ld_animated_3d()
+            # 静态 3D 渲染：直接使用已加载的 df3d，无动画，所有层同步
+            _df_render = df3d.head(max_pts)
+            _ex, _ey, _ez = lla_to_ecef(
+                _df_render["lat"].values,
+                _df_render["lon"].values,
+                _df_render["alt_km"].values,
+            )
+            _colors = [_TYPE_HEX.get(str(t), "#888") for t in _df_render["object_type"]]
+            _texts = [
+                f"{row['name']}<br>NORAD {row['norad_cat_id']}<br>"
+                f"{_TYPE_CN.get(str(row['object_type']), str(row['object_type']))}"
+                for _, row in _df_render.iterrows()
+            ]
+            _fig3d = go.Figure()
+            _add_earth_grid_only(_fig3d, n=80)
+            _fig3d.add_trace(go.Scatter3d(
+                x=_ex.tolist(), y=_ey.tolist(), z=_ez.tolist(),
+                mode="markers",
+                marker=dict(size=2.0, color=_colors, opacity=0.85, line=dict(width=0)),
+                text=_texts,
+                hovertemplate="%{text}<extra></extra>",
+                hoverinfo="text",
+                name="",
+            ))
+            _scene_r = R_EARTH + (cur["alt_max"] + 500)
+            _earth_ax = dict(range=[-_scene_r, _scene_r])
+            _apply_3d_layout(_fig3d, height=680)
+            _fig3d.update_layout(scene=dict(
+                xaxis=_earth_ax, yaxis=_earth_ax, zaxis=_earth_ax,
+                aspectmode="manual", aspectratio=dict(x=1, y=1, z=1),
+            ))
+            st.plotly_chart(_fig3d, use_container_width=True)
 
     # Detail table
     if not df3d.empty:

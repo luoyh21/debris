@@ -40,6 +40,7 @@ DB_PASSWORD = (os.getenv("DB_PASSWORD", "postgres") or "postgres").strip()
 DB_DSN = (
     f"postgresql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
     f"@{DB_HOST}:{DB_PORT}/{quote_plus(DB_NAME)}"
+    f"?client_encoding=utf8"
 )
 
 # Propagation

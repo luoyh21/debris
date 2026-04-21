@@ -411,7 +411,7 @@ try:
     _api_host = _host_header.split(":")[0] if _host_header else "localhost"
 except Exception:
     _api_host = "localhost"
-_docs_url = f"http://{_api_host}:8000/docs"
+_docs_url = f"http://{_api_host}:8502/docs"
 _docs_ic, _docs_bt = st.sidebar.columns([0.14, 0.86])
 with _docs_ic:
     _docs_svg = icon_inline("docs", 20).replace('stroke="#1e3a5f"', 'stroke="#2C84BC"')
