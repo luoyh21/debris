@@ -408,8 +408,8 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 ### Step 1：克隆仓库
 
 ```powershell
-git clone https://github.com/<your-org>/space-debris-monitor.git
-cd space-debris-monitor
+git clone https://github.com/<your-org>/debris.git
+cd debris
 ```
 
 ### Step 2：创建 Python 虚拟环境（位于项目目录内）
