@@ -61,7 +61,7 @@
 <div class="main">
 
 <h1>数据来源与覆盖范围</h1>
-<p>系统整合了五大权威空间态势感知数据源，通过统一的 NORAD 编号去重机制，构建了覆盖 <strong>60,000+</strong> 在轨目标的综合目录。每个数据源提供不同维度的信息，相互补充，确保数据的完整性和可靠性。</p>
+<p>系统整合了六大权威空间态势感知数据源，通过统一的 NORAD 编号去重机制，构建了覆盖 <strong>60,000+</strong> 在轨目标的综合目录；此外还独立接入 <strong>Asterank</strong> 小行星 / 近地天体目录，用于太阳系尺度的专题分析。每个数据源提供不同维度的信息，相互补充，确保数据的完整性和可靠性。</p>
 
 <h2>数据源总览</h2>
 <table>
@@ -107,6 +107,13 @@
     <td>年度更新</td>
     <td>滞后约 1 年</td>
   </tr>
+  <tr>
+    <td><strong>Asterank</strong></td>
+    <td>小行星 / 近地天体（NEO）开普勒轨道根数、光谱类型、Δv、经济开采估值（price/profit）、直径、反照率</td>
+    <td>小行星 / 近地天体（非地球在轨目标）</td>
+    <td>按需拉取（默认缓存）</td>
+    <td>来源 JPL Small-Body Database，接近实时</td>
+  </tr>
 </table>
 
 <h2>各数据源详解</h2>
@@ -131,6 +138,10 @@
   <div class="card">
     <h4>UNOOSA</h4>
     <p>联合国外层空间事务厅维护的官方发射登记数据。作为<strong>交叉验证数据源</strong>，与 GCAT 数据进行对比，确保发射统计的准确性。</p>
+  </div>
+  <div class="card">
+    <h4>Asterank</h4>
+    <p>独立的<strong>小行星 / 近地天体（NEO）专题库</strong>，基于 JPL Small-Body Database 扩展了经济价值估算字段（price、profit、Δv）。在系统中与地球在轨目标目录分离存储于 <code>external_asterank</code> 表，可在 <a href="/docs/modules/catalog">目标目录</a>的「小行星 / NEO (Asterank)」标签页筛选查看。由 <code>scripts/ingest_asterank.py</code> 导入。</p>
   </div>
 </div>
 
@@ -186,6 +197,11 @@
     <td>再入预报</td>
     <td>Space-Track (decay_date)</td>
     <td><a href="/docs/api/reentry">再入预报 API</a></td>
+  </tr>
+  <tr>
+    <td>小行星 / NEO 轨道根数与估值</td>
+    <td>Asterank</td>
+    <td><a href="/docs/modules/catalog">目标目录</a> →「小行星 / NEO (Asterank)」</td>
   </tr>
 </table>
 

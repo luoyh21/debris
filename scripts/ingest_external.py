@@ -79,8 +79,13 @@ def _parse_year(date_str: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def ingest_satcat():
-    """Parse jm_satcat.tsv → create external_objects table."""
+def ingest_satcat(limit: int | None = None):
+    """Parse jm_satcat.tsv → create external_objects table.
+
+    ``limit`` (optional, positive integer) caps the number of satcat rows
+    processed AFTER cleaning + dedup.  Summary tables derived from the
+    catalogue are likewise computed on the truncated subset.
+    """
     t0 = time.time()
     path = os.path.join(DATA_DIR, "jm_satcat.tsv")
     if not os.path.exists(path):
@@ -124,6 +129,11 @@ def ingest_satcat():
     if dedup_dropped:
         log.info("  Dedup by JCAT: dropped %d duplicates", dedup_dropped)
     log.info("Valid rows after cleaning + dedup: %d", len(df))
+
+    # ── Optional per-source row cap ────────────────────────────────────────
+    if limit and limit > 0 and len(df) > limit:
+        df = df.head(int(limit)).reset_index(drop=True)
+        log.info("  Truncated to first %d rows (--limit)", limit)
 
     # Build summary tables
     # 1. Yearly by country by type
@@ -279,8 +289,11 @@ def ingest_satcat():
                        "tables": 4, "elapsed": elapsed}
 
 
-def ingest_unoosa():
-    """Fetch UNOOSA annual launch data from Our World in Data API."""
+def ingest_unoosa(limit: int | None = None):
+    """Fetch UNOOSA annual launch data from Our World in Data API.
+
+    ``limit`` caps the number of cleaned rows written to DB.
+    """
     t0 = time.time()
     log.info("=== UNOOSA / Our World in Data ===")
     url = (
@@ -320,6 +333,10 @@ def ingest_unoosa():
     if dropped:
         log.info("  Dedup by (entity, year): dropped %d duplicates", dropped)
 
+    if limit and limit > 0 and len(df) > limit:
+        df = df.head(int(limit)).reset_index(drop=True)
+        log.info("  Truncated to first %d rows (--limit)", limit)
+
     log.info("  Rows: %d (raw %d), entities: %d, years: %d–%d",
              len(df), raw_count, df["entity"].nunique(),
              df["year"].min(), df["year"].max())
@@ -342,8 +359,11 @@ def ingest_unoosa():
                           "tables": 1, "elapsed": elapsed}
 
 
-def ingest_ucs():
-    """Parse UCS Satellite Database (xlsx) → external_ucs_satellites table."""
+def ingest_ucs(limit: int | None = None):
+    """Parse UCS Satellite Database (xlsx) → external_ucs_satellites table.
+
+    ``limit`` caps the number of cleaned rows written to DB.
+    """
     t0 = time.time()
     log.info("=== UCS Satellite Database ===")
     path = os.path.join(DATA_DIR, "ucs_satellites.xlsx")
@@ -396,6 +416,10 @@ def ingest_ucs():
     if dedup_dropped:
         log.info("  Dedup by NORAD: dropped %d duplicates", dedup_dropped)
 
+    if limit and limit > 0 and len(ucs) > limit:
+        ucs = ucs.head(int(limit)).reset_index(drop=True)
+        log.info("  Truncated to first %d rows (--limit)", limit)
+
     log.info("  Rows: %d (raw %d), countries: %d, with NORAD: %d",
              len(ucs), raw_count, ucs["country"].nunique(),
              ucs["norad_cat_id"].notna().sum())
@@ -426,8 +450,13 @@ def _esa_sma_ecc_to_peri_apo(sma_m, ecc):
     return round(peri, 2), round(apo, 2)
 
 
-def ingest_esa_discos():
-    """Fetch ESA DISCOS objects + initialOrbits via API → external_esa_discos table."""
+def ingest_esa_discos(limit: int | None = None):
+    """Fetch ESA DISCOS objects + initialOrbits via API → external_esa_discos table.
+
+    ``limit`` caps the number of cleaned rows written to DB.  If set AND
+    we go through the API path we also stop paging early once we have
+    enough objects cached.
+    """
     t0 = time.time()
     log.info("=== ESA DISCOS ===")
     token = os.environ.get("ESA_DISCOS_TOKEN", "")
@@ -484,6 +513,9 @@ def ingest_esa_discos():
                 }
             total_pages = data.get("meta", {}).get("pagination", {}).get("totalPages", 0)
             if page >= total_pages:
+                break
+            if limit and limit > 0 and len(all_objects) >= limit:
+                log.info("  Reached --limit=%d, stopping object paging", limit)
                 break
             page += 1
             if page % 50 == 0:
@@ -570,6 +602,10 @@ def ingest_esa_discos():
     esa = pd.concat([esa_w, esa_wo], ignore_index=True)
     if dedup_dropped:
         log.info("  Dedup by satno: dropped %d duplicates", dedup_dropped)
+
+    if limit and limit > 0 and len(esa) > limit:
+        esa = esa.head(int(limit)).reset_index(drop=True)
+        log.info("  Truncated to first %d rows (--limit)", limit)
 
     has_orbit = esa["perigee_km"].notna().sum() if "perigee_km" in esa.columns else 0
     log.info("  Rows: %d (raw %d), with orbits: %d, classes: %s",
@@ -686,19 +722,22 @@ if __name__ == "__main__":
     parser.add_argument("--unoosa", action="store_true", help="Ingest UNOOSA only")
     parser.add_argument("--ucs", action="store_true", help="Ingest UCS only")
     parser.add_argument("--esa", action="store_true", help="Ingest ESA DISCOS only")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="Cap rows written per source (0 = no limit)")
     args = parser.parse_args()
 
     run_all = not (args.gcat or args.unoosa or args.ucs or args.esa)
     t_start = time.time()
 
+    lim = int(args.limit) if args.limit and args.limit > 0 else None
     if run_all or args.gcat:
-        ingest_satcat()
+        ingest_satcat(limit=lim)
     if run_all or args.unoosa:
-        ingest_unoosa()
+        ingest_unoosa(limit=lim)
     if run_all or args.ucs:
-        ingest_ucs()
+        ingest_ucs(limit=lim)
     if run_all or args.esa:
-        ingest_esa_discos()
+        ingest_esa_discos(limit=lim)
 
     if run_all:
         cross_source_report()

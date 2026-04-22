@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import string
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -1583,8 +1584,84 @@ _RT_JS_TEMPLATE = """
 """
 
 
-def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-globe"):
-    """Render continuously animating orthographic globe (auto-play, no interaction needed)."""
+# ─── 2-D ortho globe with DYNAMIC growing trails ──────────────────────────────
+# Uses string.Template (`$name`) instead of str.format to avoid having to double
+# every curly brace in embedded JavaScript.  Trails start empty at animation
+# start and grow one frame at a time up to the current position; when the
+# animation loops (i0 < lastI) the trail naturally restarts because the
+# rebuild iterates 0..i0 from scratch.
+_RT_JS_TEMPLATE_ORTHO_TRAILS = string.Template("""
+<div id="$div_id" style="width:100%;height:${height}px"></div>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script>
+(function(){
+  var fig=$fig_json;
+  var el=document.getElementById('$div_id');
+  Plotly.newPlot(el,fig.data,fig.layout,{scrollZoom:true,displayModeBar:false,responsive:true});
+  var F=$frames_json;
+  var TG=$trail_groups_json;        // [{trIdx, indices:[...]}]
+  var N=F.length, stepMs=$step_ms, mkIdx=0;
+  if(N<2) return;
+
+  function rebuildTrails(iEnd){
+    for(var gi=0; gi<TG.length; gi++){
+      var g=TG[gi], flatLon=[], flatLat=[];
+      for(var j=0; j<g.indices.length; j++){
+        var k=g.indices[j], prev=null;
+        for(var fi=0; fi<=iEnd; fi++){
+          var lon=F[fi].lon[k], lat=F[fi].lat[k];
+          if(prev!==null && Math.abs(lon-prev)>180){
+            flatLon.push(null); flatLat.push(null);
+          }
+          flatLon.push(lon); flatLat.push(lat);
+          prev=lon;
+        }
+        flatLon.push(null); flatLat.push(null);
+      }
+      Plotly.restyle(el,{lon:[flatLon],lat:[flatLat]},[g.trIdx]);
+    }
+  }
+
+  var t0=performance.now(), last=0, lastI=-1;
+  function tick(now){
+    if(now-last<500){requestAnimationFrame(tick); return;}
+    last=now;
+    var elapsed=now-t0, total=N*stepMs;
+    var pos=(elapsed%total)/stepMs;
+    var i0=Math.floor(pos)%N, i1=(i0+1)%N, f=pos-Math.floor(pos);
+    var n=F[i0].lon.length;
+    var a=new Array(n), b=new Array(n);
+    for(var i=0; i<n; i++){
+      var d0=F[i1].lon[i]-F[i0].lon[i];
+      if(d0>180) d0-=360; if(d0<-180) d0+=360;
+      a[i]=F[i0].lon[i]+f*d0;
+      if(a[i]>180) a[i]-=360; if(a[i]<-180) a[i]+=360;
+      b[i]=F[i0].lat[i]+f*(F[i1].lat[i]-F[i0].lat[i]);
+    }
+    Plotly.restyle(el,{lon:[a],lat:[b]},[mkIdx]);
+    if(i0!==lastI){
+      rebuildTrails(i0);   // loop wrap (i0<lastI) naturally resets from frame 0
+      lastI=i0;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+""")
+
+
+def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-globe",
+                            show_trails: bool = False):
+    """Render continuously animating orthographic globe (auto-play, no interaction needed).
+
+    When ``show_trails`` is True each debris leaves a colour-matched polyline
+    that **grows dynamically from animation start to the current frame** (i.e.
+    only the *past* portion of the orbit is shown — never the future).  The
+    trail resets automatically every time the animation loops back to frame 0.
+    Lines are grouped by colour so we use ≤3 extra traces regardless of the
+    number of debris.
+    """
     import streamlit.components.v1 as components
     import json as _json
 
@@ -1604,6 +1681,25 @@ def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-glob
         hovertemplate="%{text}<extra></extra>" if texts else None,
         hoverinfo="text" if texts else "skip",
     ))
+
+    # ── Optional: dynamic orbit trails (empty at start, grow every frame) ─
+    trail_groups: list[dict] = []
+    if show_trails and colors:
+        from collections import defaultdict
+        color_to_idx: dict[str, list[int]] = defaultdict(list)
+        for _i, _c in enumerate(colors):
+            color_to_idx[_c].append(_i)
+        for _c, _idx_list in color_to_idx.items():
+            trail_groups.append({"trIdx": len(fig.data), "indices": _idx_list})
+            fig.add_trace(go.Scattergeo(
+                lon=[], lat=[],
+                mode="lines",
+                line=dict(color=_c, width=0.9),
+                opacity=0.55,
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+
     fig.update_geos(
         projection_type="orthographic",
         showcoastlines=True, coastlinecolor="#3a7a5a", coastlinewidth=1.2,
@@ -1621,20 +1717,29 @@ def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-glob
 
     fd = [{"lon": f["lon"], "lat": f["lat"]} for f in frames]
 
-    html = _RT_JS_TEMPLATE.format(
-        div_id=div_id, height=height,
-        fig_json=fig.to_json(),
-        frames_json=_json.dumps(fd, separators=(',', ':')),
-        step_ms=int(step_s * 1000),
-        trace_idx=0,
-        k0="lon", k1="lat",
-        extra_arr_decl="",
-        wrap_fix_0="if(d0>180)d0-=360;if(d0<-180)d0+=360;",
-        wrap_clamp_0="if(a[i]>180)a[i]-=360;if(a[i]<-180)a[i]+=360;",
-        wrap_fix_1="",
-        extra_interp="",
-        restyle_obj="{lon:[a],lat:[b]}",
-    )
+    if show_trails and trail_groups:
+        html = _RT_JS_TEMPLATE_ORTHO_TRAILS.substitute(
+            div_id=div_id, height=height,
+            fig_json=fig.to_json(),
+            frames_json=_json.dumps(fd, separators=(',', ':')),
+            trail_groups_json=_json.dumps(trail_groups, separators=(',', ':')),
+            step_ms=int(step_s * 1000),
+        )
+    else:
+        html = _RT_JS_TEMPLATE.format(
+            div_id=div_id, height=height,
+            fig_json=fig.to_json(),
+            frames_json=_json.dumps(fd, separators=(',', ':')),
+            step_ms=int(step_s * 1000),
+            trace_idx=0,
+            k0="lon", k1="lat",
+            extra_arr_decl="",
+            wrap_fix_0="if(d0>180)d0-=360;if(d0<-180)d0+=360;",
+            wrap_clamp_0="if(a[i]>180)a[i]-=360;if(a[i]<-180)a[i]+=360;",
+            wrap_fix_1="",
+            extra_interp="",
+            restyle_obj="{lon:[a],lat:[b]}",
+        )
     components.html(html, height=height + 10, scrolling=False)
 
 
@@ -1741,6 +1846,14 @@ def _render_global_view():
             label_visibility="collapsed",
         )
 
+        show_trails = st.toggle(
+            "显示轨迹拖尾",
+            value=False,
+            key="gv_show_trails",
+            help="开启后，每个碎片会从当前动画起点开始留下一条与自身同色的轨道拖尾，"
+                 "仅显示『已经走过的路径』——不会展示未来位置；动画每次循环回到起点时拖尾自动复位。",
+        )
+
     with col_map:
         t_query = datetime.now(timezone.utc) + timedelta(hours=int(hour_offset))
         with st.spinner("加载当前轨道位置…"):
@@ -1792,7 +1905,10 @@ def _render_global_view():
                     obj_type=_gv_obj_type, limit=_gv_limit,
                 )
                 if rd.get("frames"):
-                    _render_realtime_ortho(rd, height=530, div_id="rt-globe")
+                    _render_realtime_ortho(
+                        rd, height=530, div_id="rt-globe",
+                        show_trails=bool(st.session_state.get("gv_show_trails", False)),
+                    )
                 else:
                     st.plotly_chart(make_globe_ortho(df), use_container_width=True,
                                     config=dict(scrollZoom=True, displayModeBar=False))

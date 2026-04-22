@@ -260,6 +260,7 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
 | **UNOOSA / Our World in Data** | 年度发射统计 | **1,274 条**（116 国，1957—2025） | 联合国外层空间事务厅（UNOOSA）登记的各国年度发射数量，通过 OWID API 自动获取 |
 | **UCS Satellite Database** | 在轨卫星详情 | **7,560 条**（105 国） | 忧思科学家联盟维护，含卫星用途（军/民/商）、运营商、设计寿命、发射质量、轨道参数 |
 | **ESA DISCOS** | 欧空局空间物体数据库 | **10,000 条**（API 批量获取） | 欧洲空间局 DISCOSweb API，含物体质量、截面积、碎片数量、预测再入日期 |
+| **Asterank** | 小行星 / 近地天体（NEO）专题库 | **数千条**（API + 本地缓存） | http://www.asterank.com 维护，含小行星开普勒轨道根数、光谱类型、Δv、经济开采估值（price/profit） |
 
 系统自动完成数据去重与清洗：
 - Space-Track 数据用于实时轨道传播（SGP4）和碰撞风险计算
@@ -274,6 +275,10 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
 | `external_country_yearly_payload` | GCAT 按年/国家的有效载荷发射量（672 行） |
 | `external_cumulative_onorbit` | GCAT 逐年累计在轨数量（含发射-衰减差分，210 行） |
 | `external_onorbit_snapshot` | GCAT 当前在轨快照（44 行） |
+| `external_ucs_satellites`   | UCS 在轨卫星详细信息（7,560 行） |
+| `external_esa_discos`       | ESA DISCOS 物体物理参数（10,000 行） |
+| `external_unoosa_launches`  | UNOOSA 年度发射统计（1,274 行） |
+| `external_asterank`         | Asterank 小行星 / NEO 专题库（数千行） |
 
 ### 二、轨道力学仿真
 
@@ -389,6 +394,7 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 | **UNOOSA / Our World in Data** | ✅ 已接入 | `external_unoosa_launches` | 1,274 条，116 国，1957—2025 |
 | **UCS Satellite Database** | ✅ 已接入 | `external_ucs_satellites` | 7,560 条，105 国，含用途/运营商/寿命/质量 |
 | **ESA DISCOS** | ✅ 已接入 | `external_esa_discos` | 10,000 条，含质量/截面积/碎片数/预测再入 |
+| **Asterank** | ✅ 已接入 | `external_asterank` | 小行星 / NEO 专题库，含开普勒根数、光谱、Δv、估值（`scripts/ingest_asterank.py`） |
 
 ## Windows 本地部署（无 Docker）
 
@@ -485,7 +491,7 @@ psql -U postgres -h localhost -d space_debris -c "CREATE EXTENSION IF NOT EXISTS
 python run.py init-db
 ```
 
-### Step 6：拉取全量数据（5 个数据源）
+### Step 6：拉取全量数据（6 个数据源）
 
 数据摄入分两步，可在不同终端窗口中并行执行：
 
@@ -519,7 +525,19 @@ python scripts/ingest_external.py --ucs       # 仅 UCS
 python scripts/ingest_external.py --esa       # 仅 ESA DISCOS
 python scripts/ingest_external.py --unoosa    # 仅 UNOOSA
 python scripts/ingest_external.py --gcat      # 仅 GCAT
+python scripts/ingest_external.py --limit 500 # 每源各限制 500 条（冒烟测试）
 ```
+
+**终端 3 — Asterank 小行星 / NEO 专题库（几秒内完成）：**
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python scripts/ingest_asterank.py              # 默认拉取 5000 条
+python scripts/ingest_asterank.py --limit 500  # 限制 500 条
+```
+
+> Asterank 数据独立于地球在轨目标（不进入 `v_unified_objects`），
+> 入库到 `external_asterank` 表，可在目标目录页的「小行星 / NEO (Asterank)」标签查看。
 
 ### Step 7：创建统一视图
 
@@ -598,6 +616,7 @@ python run.py init-db
 # 6. 拉取数据（两个终端并行）
 python run.py ingest                        # 终端 1：Space-Track
 python scripts/ingest_external.py           # 终端 2：GCAT+UNOOSA+UCS+ESA
+python scripts/ingest_asterank.py           # 终端 3：Asterank 小行星/NEO
 
 # 7. 创建统一视图
 python scripts/create_unified_view.py

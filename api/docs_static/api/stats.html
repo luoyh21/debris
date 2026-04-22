@@ -67,7 +67,7 @@
   <span class="path">/api/v1/stats</span>
 </div>
 
-<p><span class="tag tag-scene">适用场景</span> 快速获取系统数据库的概况信息——目标总数、各类型分布、GP 元素和轨迹段的入库数量。适用于健康检查、监控面板集成或数据摄入状态确认。</p>
+<p><span class="tag tag-scene">适用场景</span> 快速获取系统数据库的概况信息——目标总数、各类型分布、GP 元素和轨迹段的入库数量，以及多源融合视图 <code>v_unified_objects</code> 和各个外部 / 专题数据源（GCAT / UNOOSA / UCS / ESA DISCOS / <strong>Asterank</strong>）的入库条数。适用于健康检查、监控面板集成或数据摄入状态确认。</p>
 
 <h2>请求参数</h2>
 <p>此接口无需任何参数，直接发送 GET 请求即可。</p>
@@ -75,7 +75,7 @@
 <h2>响应字段</h2>
 <table>
   <tr><th>字段</th><th>类型</th><th>说明</th></tr>
-  <tr><td><code>catalog_total</code></td><td>int</td><td>目标目录 (catalog_objects) 中的总记录数</td></tr>
+  <tr><td><code>catalog_total</code></td><td>int</td><td>目标目录 (catalog_objects) 中的总记录数（Space-Track 主目录）</td></tr>
   <tr><td><code>by_type</code></td><td>object</td><td>按目标类型分组的数量。键为类型名称，值为数量</td></tr>
   <tr><td><code>by_type.DEBRIS</code></td><td>int</td><td>碎片数量</td></tr>
   <tr><td><code>by_type.PAYLOAD</code></td><td>int</td><td>有效载荷数量</td></tr>
@@ -83,10 +83,21 @@
   <tr><td><code>by_type.UNKNOWN</code></td><td>int</td><td>未知类型数量</td></tr>
   <tr><td><code>gp_elements_count</code></td><td>int</td><td>GP 轨道根数 (gp_elements) 表的总记录数</td></tr>
   <tr><td><code>trajectory_segments_count</code></td><td>int</td><td>轨迹段 (trajectory_segments) 表的总记录数</td></tr>
+  <tr><td><code>unified_total</code></td><td>int</td><td>多源融合视图 <code>v_unified_objects</code> 去重后的空间目标总数（融合 Space-Track + UCS + ESA DISCOS）</td></tr>
+  <tr><td><code>unified_primary_sources</code></td><td>int</td><td>多源融合视图中的 <code>primary_source</code> 种类数（正常为 3：Space-Track / UCS / ESA-DISCOS）</td></tr>
+  <tr><td><code>external_sources</code></td><td>object</td><td>各外部 / 专题数据源表的入库条数（见下表）</td></tr>
+  <tr><td><code>external_sources.ucs</code></td><td>int</td><td>UCS 卫星数据库 (<code>external_ucs_satellites</code>) 条数</td></tr>
+  <tr><td><code>external_sources.esa_discos</code></td><td>int</td><td>ESA DISCOS (<code>external_esa_discos</code>) 条数</td></tr>
+  <tr><td><code>external_sources.gcat_yearly_launches</code></td><td>int</td><td>GCAT 按年/国别/类型的发射统计 (<code>external_yearly_launches</code>)</td></tr>
+  <tr><td><code>external_sources.gcat_cumulative_onorbit</code></td><td>int</td><td>GCAT 逐年累计在轨统计 (<code>external_cumulative_onorbit</code>)</td></tr>
+  <tr><td><code>external_sources.gcat_country_yearly_payload</code></td><td>int</td><td>GCAT 按年/国别的有效载荷发射量 (<code>external_country_yearly_payload</code>)</td></tr>
+  <tr><td><code>external_sources.gcat_onorbit_snapshot</code></td><td>int</td><td>GCAT 当前在轨快照 (<code>external_onorbit_snapshot</code>)</td></tr>
+  <tr><td><code>external_sources.unoosa</code></td><td>int</td><td>UNOOSA 年度发射统计 (<code>external_unoosa_launches</code>)</td></tr>
+  <tr><td><code>external_sources.asterank</code></td><td>int</td><td><strong>Asterank 小行星 / NEO 专题库</strong> (<code>external_asterank</code>) — 与地球在轨目标独立</td></tr>
 </table>
 
 <h2>curl 示例</h2>
-<pre><code>curl http://&lt;your-host&gt;:8000/api/v1/stats</code></pre>
+<pre><code>curl http://&lt;your-host&gt;:8502/api/v1/stats</code></pre>
 
 <h2>响应示例</h2>
 <pre><code>{
@@ -98,7 +109,19 @@
     "UNKNOWN": 10845
   },
   "gp_elements_count": 58932,
-  "trajectory_segments_count": 245678
+  "trajectory_segments_count": 245678,
+  "unified_total": 69234,
+  "unified_primary_sources": 3,
+  "external_sources": {
+    "ucs": 7560,
+    "esa_discos": 10000,
+    "gcat_yearly_launches": 1392,
+    "gcat_cumulative_onorbit": 210,
+    "gcat_country_yearly_payload": 672,
+    "gcat_onorbit_snapshot": 44,
+    "unoosa": 1274,
+    "asterank": 5000
+  }
 }</code></pre>
 
 <h2>结果解读</h2>
@@ -111,6 +134,8 @@
     <tr><td><code>gp_elements_count</code></td><td>应接近 catalog_total</td><td>如果远小于 catalog_total，说明 GP 数据摄入不完整</td></tr>
     <tr><td><code>trajectory_segments_count</code></td><td>&gt; 0</td><td>如果为 0，区域碎片查询将退化为慢速的 SGP4 模式</td></tr>
     <tr><td><code>by_type.DEBRIS</code></td><td>通常占总数 &gt; 40%</td><td>碎片是最大的目标类别</td></tr>
+    <tr><td><code>unified_total</code></td><td>应 ≥ <code>catalog_total</code></td><td>若为 0，通常是 <code>v_unified_objects</code> 物化视图未创建，运行 <code>python run.py refresh-views</code> 即可</td></tr>
+    <tr><td><code>external_sources.asterank</code></td><td>数千条（随 <code>--limit</code> 而定）</td><td>若为 0 说明尚未运行 <code>python scripts/ingest_asterank.py</code></td></tr>
   </table>
 </div>
 

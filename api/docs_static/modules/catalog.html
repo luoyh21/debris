@@ -62,7 +62,11 @@
 
 <h1>目标目录</h1>
 <p><span class="tag tag-scene">场景</span> 查找特定的空间目标，或按条件批量筛选感兴趣的目标群体。</p>
-<p>目标目录是系统的核心数据浏览界面，融合了 Space-Track、UCS 和 ESA DISCOS 三大数据源的信息，按 NORAD ID 去重后统一展示。支持多维度筛选和关键词搜索，最多可一次显示 2,000 条记录。</p>
+<p>目标目录是系统的核心数据浏览界面，分为两个标签页：</p>
+<ul>
+  <li><strong>地球在轨目标（多源融合）</strong>：融合 Space-Track、UCS、ESA DISCOS 三大数据源，按 NORAD ID 去重后统一展示，支持多维度筛选和关键词搜索，最多一次显示 2,000 条记录。</li>
+  <li><strong>小行星 / NEO (Asterank)</strong>：独立的小行星 / 近地天体（NEO）专题库，字段包含开普勒轨道根数（a / e / i / MOID）、光谱类型、直径、Δv 与经济估值（price / profit），可按轨道族、光谱类型、Δv 上限、直径下限、最小利润筛选。</li>
+</ul>
 
 <h2>使用步骤</h2>
 <ol class="steps">
@@ -91,6 +95,8 @@
 </div>
 
 <h2>筛选条件</h2>
+
+<h3>地球在轨目标（多源融合）</h3>
 <table>
   <tr><th>筛选项</th><th>选项</th><th>说明</th></tr>
   <tr><td><strong>目标类型</strong></td><td>全部 / DEBRIS / PAYLOAD / ROCKET BODY / UNKNOWN</td><td>按空间目标分类筛选</td></tr>
@@ -103,7 +109,21 @@
   <tr><td><strong>数据 Enrichment</strong></td><td>全部 / 含 UCS 数据 / 含 ESA 数据 / 有用途信息 / 有用户类型信息</td><td>按附加数据标记筛选</td></tr>
 </table>
 
+<h3>小行星 / NEO（Asterank）</h3>
+<p>Asterank 标签页读取独立的 <code>external_asterank</code> 表，字段与地球在轨目标不同，提供以下筛选条件：</p>
+<table>
+  <tr><th>筛选项</th><th>选项</th><th>说明</th></tr>
+  <tr><td><strong>名称关键词</strong></td><td>自由输入</td><td>匹配 <code>full_name</code> 或 <code>prov_des</code>（临时编号），如 <code>Bennu</code>、<code>2011 CP4</code></td></tr>
+  <tr><td><strong>轨道族 class</strong></td><td>自由输入</td><td>小行星轨道分类，如 <code>APO</code>（Apollo）、<code>AMO</code>（Amor）、<code>ATE</code>（Aten）、<code>IEO</code>（Atira）、<code>MBA</code>（主带）</td></tr>
+  <tr><td><strong>光谱类型 spec</strong></td><td>自由输入</td><td>按光谱分类筛选，如 <code>S</code>（硅酸盐）、<code>C</code>（碳质）、<code>M</code>（金属）、<code>X</code>、<code>V</code></td></tr>
+  <tr><td><strong>Δv 上限 (km/s)</strong></td><td>数值</td><td>仅保留 Δv ≤ 阈值的天体（越小越易到达）；<code>0</code> 表示不限制</td></tr>
+  <tr><td><strong>最小直径 (km)</strong></td><td>数值</td><td>仅保留直径 ≥ 阈值的天体</td></tr>
+  <tr><td><strong>最小估值 profit ($)</strong></td><td>数值（支持科学计数）</td><td>仅保留 Asterank 经济估值 profit 高于阈值的天体</td></tr>
+</table>
+
 <h2 id="detail">数据列说明</h2>
+
+<h3>地球在轨目标（多源融合）</h3>
 <table>
   <tr><th>列名</th><th>数据来源</th><th>含义</th></tr>
   <tr><td><strong>NORAD ID</strong></td><td>Space-Track</td><td>北美防空司令部 5 位编号，全球唯一标识</td></tr>
@@ -126,6 +146,25 @@
   <tr><td><strong>截面 m²(ESA)</strong></td><td>ESA DISCOS</td><td>ESA 提供的碰撞截面积估计</td></tr>
   <tr><td><strong>任务(ESA)</strong></td><td>ESA DISCOS</td><td>ESA 记录的任务名称</td></tr>
   <tr><td><strong>状态(ESA)</strong></td><td>ESA DISCOS</td><td>在轨 / 已衰减</td></tr>
+</table>
+
+<h3>小行星 / NEO（Asterank）</h3>
+<table>
+  <tr><th>列名</th><th>数据来源</th><th>含义</th></tr>
+  <tr><td><strong>名称</strong></td><td>Asterank</td><td>小行星正式名称（<code>full_name</code>）</td></tr>
+  <tr><td><strong>临时编号</strong></td><td>Asterank</td><td>未命名天体的临时编号（<code>prov_des</code>），如 <code>2011 CP4</code></td></tr>
+  <tr><td><strong>轨道族</strong></td><td>Asterank</td><td>小行星轨道分类（<code>class</code>）：APO / AMO / ATE / IEO / MBA …</td></tr>
+  <tr><td><strong>光谱</strong></td><td>Asterank</td><td>光谱类型（<code>spec</code>）：S / C / M / X / V / D 等</td></tr>
+  <tr><td><strong>半长轴 a (AU)</strong></td><td>Asterank (JPL SBDB)</td><td>绕日椭圆轨道的半长轴（天文单位）</td></tr>
+  <tr><td><strong>偏心率 e</strong></td><td>Asterank</td><td>轨道偏心率，0 为正圆，接近 1 为细长椭圆</td></tr>
+  <tr><td><strong>倾角 i (°)</strong></td><td>Asterank</td><td>轨道面与黄道面的夹角</td></tr>
+  <tr><td><strong>周期 (d)</strong></td><td>Asterank</td><td>绕太阳公转周期（天）</td></tr>
+  <tr><td><strong>直径 (km)</strong></td><td>Asterank</td><td>估算的小行星直径</td></tr>
+  <tr><td><strong>反照率</strong></td><td>Asterank</td><td>表面反射率（<code>albedo</code>），反推尺寸的关键参数</td></tr>
+  <tr><td><strong>MOID (AU)</strong></td><td>Asterank</td><td>与地球轨道的最小交会距离，PHA（潜在威胁天体）判定依据</td></tr>
+  <tr><td><strong>Δv (km/s)</strong></td><td>Asterank</td><td>从地球出发到达该天体所需的速度增量，衡量「可达性」</td></tr>
+  <tr><td><strong>估值 price ($)</strong></td><td>Asterank</td><td>基于光谱和直径估算的资源总价值</td></tr>
+  <tr><td><strong>利润 profit ($)</strong></td><td>Asterank</td><td>扣除到达与返回成本后的净利润估值（综合考虑 Δv）</td></tr>
 </table>
 
 <div class="info-box">

@@ -53,17 +53,31 @@ until docker compose exec -T db pg_isready -U postgres -d space_debris >/dev/nul
   sleep 2
 done
 
-echo ">>> 初始化表结构（可重复执行）"
+echo ">>> 初始化表结构 + 迁移（v_debris_density / v_high_risk_events 自动建立；可重复执行）"
 docker compose run --rm app python run.py init-db
 
 echo ">>> 后台启动全量 ingest（容器名 debris-ingest）"
+echo "    顺序：Space-Track → GCAT/UNOOSA/UCS/ESA → Asterank → 刷新 v_unified_objects"
 docker rm -f debris-ingest 2>/dev/null || true
-docker compose run -d --name debris-ingest app python run.py ingest
+docker compose run -d --name debris-ingest app sh -c '
+  set -e
+  echo "=== [1/4] Space-Track ingest ==="
+  python run.py ingest
+  echo "=== [2/4] External sources (GCAT + UNOOSA + UCS + ESA DISCOS) ==="
+  python scripts/ingest_external.py
+  echo "=== [3/4] Asterank (asteroids / NEO) ==="
+  python scripts/ingest_asterank.py
+  echo "=== [4/4] Refresh v_unified_objects ==="
+  python run.py refresh-views
+  echo "=== ALL DONE ==="
+'
 
-echo ">>> 构建并后台启动 Streamlit（端口 8501）"
-docker compose up -d --build app
+echo ">>> 构建并后台启动 Streamlit + FastAPI（端口 8501 / 8502）"
+docker compose up -d --build app api
 
 echo ""
 echo "完成。"
-echo "  仪表盘: http://localhost:8501"
-echo "  查看 ingest: docker logs -f debris-ingest"
+echo "  仪表盘:    http://localhost:8501"
+echo "  API 文档:  http://localhost:8502/docs"
+echo "  查看 ingest 日志: docker logs -f debris-ingest"
+echo "  如需按样本量小跑: docker compose run --rm app sh -c \"python run.py ingest --limit 500 && python scripts/ingest_external.py --limit 500 && python scripts/ingest_asterank.py --limit 500 && python run.py refresh-views\""

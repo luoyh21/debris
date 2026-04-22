@@ -18,9 +18,70 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 
 def cmd_init_db(args):
-    from database.db import init_db
+    """Initialize database:
+
+      1. SQLAlchemy ``Base.metadata.create_all`` (core tables).
+      2. Apply raw-SQL migrations under ``database/migrations/*.sql``
+         (views ``v_debris_density`` / ``v_high_risk_events``, extra indexes).
+      3. Best-effort refresh of materialized view ``v_unified_objects``
+         (silently skipped if external_* tables are not yet ingested).
+    """
+    import os
+    from database.db import init_db, get_engine
+
     init_db()
+    print("✓ Base schema ready (PostGIS + SQLAlchemy tables)")
+
+    # ── 2. Apply raw-SQL migrations ──────────────────────────────────────
+    mig_dir = os.path.join(os.path.dirname(__file__), "database", "migrations")
+    if os.path.isdir(mig_dir):
+        engine = get_engine()
+        for fname in sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql")):
+            path = os.path.join(mig_dir, fname)
+            with open(path) as fh:
+                sql_text = fh.read()
+            try:
+                with engine.begin() as conn:
+                    conn.exec_driver_sql(sql_text)
+                print(f"✓ Migration applied: {fname}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"✗ Migration {fname} failed: {exc}")
+
+    # ── 3. (re)build unified materialized view (optional) ────────────────
+    try:
+        from scripts.create_unified_view import create as _create_unified
+        _create_unified()
+        print("✓ Materialized view v_unified_objects refreshed")
+    except Exception as exc:  # noqa: BLE001
+        print("• v_unified_objects skipped "
+              "(external_* tables not ready — run ingest first):")
+        print(f"  {type(exc).__name__}: {str(exc).splitlines()[0][:100]}")
+
     print("Database initialized.")
+
+
+def cmd_refresh_views(args):
+    """Re-apply SQL migrations and rebuild v_unified_objects (no table DDL)."""
+    # Re-use cmd_init_db logic without the base schema step when caller
+    # prefers an explicit verb to be less surprising in orchestration scripts.
+    import os
+    from database.db import get_engine
+    from sqlalchemy import text  # noqa: F401
+
+    mig_dir = os.path.join(os.path.dirname(__file__), "database", "migrations")
+    if os.path.isdir(mig_dir):
+        engine = get_engine()
+        for fname in sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql")):
+            path = os.path.join(mig_dir, fname)
+            with open(path) as fh:
+                sql_text = fh.read()
+            with engine.begin() as conn:
+                conn.exec_driver_sql(sql_text)
+            print(f"✓ Migration applied: {fname}")
+
+    from scripts.create_unified_view import create as _create_unified
+    _create_unified()
+    print("✓ v_unified_objects refreshed")
 
 
 def cmd_ingest(args):
@@ -277,14 +338,22 @@ def main():
     p_api = sub.add_parser("api", help="Launch FastAPI docs & REST API server")
     p_api.add_argument("--port", type=int, default=8502)
 
+    # ── refresh-views ────────────────────────────────────────────────────────
+    sub.add_parser(
+        "refresh-views",
+        help="Re-apply SQL migrations + rebuild v_unified_objects "
+             "(run after ingest / ingest_external / ingest_asterank)",
+    )
+
     args = parser.parse_args()
     dispatch = {
-        "init-db":  cmd_init_db,
-        "ingest":   cmd_ingest,
-        "simulate": cmd_simulate,
-        "lcola":    cmd_lcola,
-        "app":      cmd_app,
-        "api":      cmd_api,
+        "init-db":       cmd_init_db,
+        "ingest":        cmd_ingest,
+        "simulate":      cmd_simulate,
+        "lcola":         cmd_lcola,
+        "app":           cmd_app,
+        "api":           cmd_api,
+        "refresh-views": cmd_refresh_views,
     }
 
     if args.command not in dispatch:

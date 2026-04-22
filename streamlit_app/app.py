@@ -437,7 +437,7 @@ with _docs_bt:
     )
 st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA")
+st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank")
 
 # Track current page in session_state so sidebar fragments can read it.
 # Also clear LCOLA done notification when user visits the LCOLA page.
@@ -755,14 +755,17 @@ if page == "overview":
         _n_src = _src_total_df["数据源"].nunique() if not _src_total_df.empty else 0
         st.caption(f"融合 **{_n_src}** 个数据源 · 去重后共 **{_n:,}** 个空间目标")
 
-    # Supplementary: GCAT launch history + UNOOSA (aggregate stats, not objects)
-    with st.expander("补充统计数据源", expanded=False):
+    # Supplementary: GCAT launch history + UNOOSA aggregate stats + Asterank
+    # (asteroids / NEO).  These are NOT Earth-orbiting satellites/debris, so
+    # they live in their own tables rather than v_unified_objects.
+    with st.expander("补充与专题数据源（历史发射统计 · 小行星）", expanded=False):
         _aux_rows = []
         _aux_tables = [
             ("external_yearly_launches",        "GCAT 年度发射统计"),
             ("external_cumulative_onorbit",     "GCAT 累计在轨统计"),
             ("external_country_yearly_payload", "GCAT 国别载荷统计"),
             ("external_unoosa_launches",        "UNOOSA 年度发射统计"),
+            ("external_asterank",               "Asterank 小行星 / 近地天体目录"),
         ]
         for tbl, label in _aux_tables:
             try:
@@ -775,7 +778,11 @@ if page == "overview":
             _aux_df = pd.DataFrame(_aux_rows, columns=["数据源", "记录数"])
             _aux_df["记录数"] = _aux_df["记录数"].apply(lambda x: f"{x:,}")
             st.dataframe(_aux_df, use_container_width=True, hide_index=True)
-            st.caption("以上为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析。")
+            st.caption(
+                "GCAT / UNOOSA 为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析；"
+                "Asterank 为独立的小行星/近地天体专题库（来自 http://www.asterank.com），"
+                "与地球在轨目标目录相互独立，可在目标目录页的「专题：小行星 (Asterank)」标签查看。"
+            )
 
 # ------------------------------------------------------------------
 # 页面：可视化探索
@@ -790,114 +797,203 @@ elif page == "viz":
 elif page == "catalog":
     st.markdown(title_row("catalog", "空间目标统一目录"), unsafe_allow_html=True)
     st.caption("融合 Space-Track、UCS Satellite Database、ESA DISCOS 三大数据源，"
-               "按 NORAD ID 去重后统一展示。")
+               "按 NORAD ID 去重后统一展示；此外提供独立的 Asterank 小行星 / 近地天体专题库。")
 
-    with st.expander("筛选条件", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        obj_type = col1.selectbox(
-            "目标类型",
-            ["全部", "DEBRIS（碎片）", "PAYLOAD（载荷）", "ROCKET BODY（箭体）", "UNKNOWN（未知）"]
-        )
-        country = col2.text_input("国家代码（如 US、PRC、RU、CIS）", "",
-                                  help="CN/China → PRC，USA → US，USSR → CIS")
-        name_search = col3.text_input("名称关键词", "")
+    _cat_tab_earth, _cat_tab_aster = st.tabs(
+        ["地球在轨目标（多源融合）", "小行星 / NEO（Asterank）"]
+    )
 
-        col4, col5, col6 = st.columns(3)
-        perigee_min = col4.number_input("近地点下限 (km)", value=0, step=100)
-        perigee_max = col5.number_input("近地点上限 (km)", value=50000, step=500)
-        rcs_size = col6.selectbox("RCS 尺寸", ["全部", "SMALL", "MEDIUM", "LARGE"])
+    with _cat_tab_earth:
+        with st.expander("筛选条件", expanded=True):
+            col1, col2, col3 = st.columns(3)
+            obj_type = col1.selectbox(
+                "目标类型",
+                ["全部", "DEBRIS（碎片）", "PAYLOAD（载荷）", "ROCKET BODY（箭体）", "UNKNOWN（未知）"]
+            )
+            country = col2.text_input("国家代码（如 US、PRC、RU、CIS）", "",
+                                      help="CN/China → PRC，USA → US，USSR → CIS")
+            name_search = col3.text_input("名称关键词", "")
 
-        col7, col8 = st.columns(2)
-        primary_src = col7.selectbox("主数据源",
-                                     ["全部", "Space-Track", "UCS", "ESA-DISCOS"])
-        enrich_filter = col8.selectbox("数据enrichment",
-                                       ["全部", "含 UCS 数据", "含 ESA 数据",
-                                        "有用途信息", "有用户类型信息"])
+            col4, col5, col6 = st.columns(3)
+            perigee_min = col4.number_input("近地点下限 (km)", value=0, step=100)
+            perigee_max = col5.number_input("近地点上限 (km)", value=50000, step=500)
+            rcs_size = col6.selectbox("RCS 尺寸", ["全部", "SMALL", "MEDIUM", "LARGE"])
 
-    type_map = {
-        "全部": None,
-        "DEBRIS（碎片）": "DEBRIS",
-        "PAYLOAD（载荷）": "PAYLOAD",
-        "ROCKET BODY（箭体）": "ROCKET BODY",
-        "UNKNOWN（未知）": "UNKNOWN",
-    }
+            col7, col8 = st.columns(2)
+            primary_src = col7.selectbox("主数据源",
+                                         ["全部", "Space-Track", "UCS", "ESA-DISCOS"])
+            enrich_filter = col8.selectbox("数据enrichment",
+                                           ["全部", "含 UCS 数据", "含 ESA 数据",
+                                            "有用途信息", "有用户类型信息"])
 
-    where_clauses = ["(perigee_km IS NULL OR perigee_km BETWEEN :pmin AND :pmax)"]
-    params: dict = {"pmin": perigee_min, "pmax": perigee_max}
-
-    otype = type_map[obj_type]
-    if otype:
-        where_clauses.append("object_type = :otype")
-        params["otype"] = otype
-    if country.strip():
-        _country_aliases = {
-            "CN": "PRC", "CHINA": "PRC", "中国": "PRC",
-            "USA": "US", "美国": "US",
-            "USSR": "CIS", "RUSSIA": "CIS", "俄罗斯": "CIS",
-            "JAPAN": "JPN", "日本": "JPN",
-            "INDIA": "IND", "印度": "IND",
+        type_map = {
+            "全部": None,
+            "DEBRIS（碎片）": "DEBRIS",
+            "PAYLOAD（载荷）": "PAYLOAD",
+            "ROCKET BODY（箭体）": "ROCKET BODY",
+            "UNKNOWN（未知）": "UNKNOWN",
         }
-        _cc = country.strip().upper()
-        _cc = _country_aliases.get(_cc, _cc)
-        where_clauses.append("country_code = :country")
-        params["country"] = _cc
-    if name_search.strip():
-        where_clauses.append("name ILIKE :ns")
-        params["ns"] = f"%{name_search.strip()}%"
-    if rcs_size != "全部":
-        where_clauses.append("rcs_size = :rcs")
-        params["rcs"] = rcs_size
-    if primary_src != "全部":
-        where_clauses.append("primary_source = :psrc")
-        params["psrc"] = primary_src
-    if enrich_filter == "含 UCS 数据":
-        where_clauses.append("has_ucs = true")
-    elif enrich_filter == "含 ESA 数据":
-        where_clauses.append("has_esa = true")
-    elif enrich_filter == "有用途信息":
-        where_clauses.append("inferred_purpose IS NOT NULL")
-    elif enrich_filter == "有用户类型信息":
-        where_clauses.append("inferred_users IS NOT NULL")
 
-    where_sql = " AND ".join(where_clauses)
-    df = run_query(f"""
-        SELECT
-            norad_cat_id   AS "NORAD ID",
-            name           AS "名称",
-            CASE object_type
-                WHEN 'DEBRIS'      THEN '碎片'
-                WHEN 'PAYLOAD'     THEN '载荷'
-                WHEN 'ROCKET BODY' THEN '箭体'
-                ELSE object_type
-            END            AS "类型",
-            country_code   AS "国家",
-            launch_date    AS "发射日期",
-            ROUND(perigee_km::numeric, 1) AS "近地点(km)",
-            ROUND(apogee_km::numeric, 1)  AS "远地点(km)",
-            ROUND(inclination::numeric, 2) AS "倾角(°)",
-            rcs_size       AS "RCS",
-            primary_source AS "主数据源",
-            CASE WHEN has_ucs THEN '✓' ELSE '' END AS "UCS",
-            CASE WHEN has_esa THEN '✓' ELSE '' END AS "ESA",
-            inferred_purpose AS "用途",
-            inferred_users   AS "用户类型",
-            ucs_purpose    AS "用途(UCS原始)",
-            ucs_users      AS "用户(UCS原始)",
-            ROUND(esa_mass_kg::numeric, 2) AS "质量kg(ESA)",
-            ROUND(esa_cross_section_m2::numeric, 4) AS "截面m²(ESA)",
-            esa_mission    AS "任务(ESA)",
-            CASE esa_active WHEN true THEN '在轨' WHEN false THEN '已衰减' ELSE '' END AS "状态(ESA)"
-        FROM v_unified_objects
-        WHERE {where_sql}
-        ORDER BY (name IS NOT NULL) DESC, launch_date DESC NULLS LAST, norad_cat_id DESC
-        LIMIT 2000
-    """, params)
+        where_clauses = ["(perigee_km IS NULL OR perigee_km BETWEEN :pmin AND :pmax)"]
+        params: dict = {"pmin": perigee_min, "pmax": perigee_max}
 
-    st.write(f"**共 {len(df)} 条记录**（最多显示 2000 条）")
-    if not df.empty:
-        st.dataframe(df, use_container_width=True, height=550)
-    else:
-        st.warning("当前筛选条件下无数据，请调整筛选范围或检查数据摄入状态。")
+        otype = type_map[obj_type]
+        if otype:
+            where_clauses.append("object_type = :otype")
+            params["otype"] = otype
+        if country.strip():
+            _country_aliases = {
+                "CN": "PRC", "CHINA": "PRC", "中国": "PRC",
+                "USA": "US", "美国": "US",
+                "USSR": "CIS", "RUSSIA": "CIS", "俄罗斯": "CIS",
+                "JAPAN": "JPN", "日本": "JPN",
+                "INDIA": "IND", "印度": "IND",
+            }
+            _cc = country.strip().upper()
+            _cc = _country_aliases.get(_cc, _cc)
+            where_clauses.append("country_code = :country")
+            params["country"] = _cc
+        if name_search.strip():
+            where_clauses.append("name ILIKE :ns")
+            params["ns"] = f"%{name_search.strip()}%"
+        if rcs_size != "全部":
+            where_clauses.append("rcs_size = :rcs")
+            params["rcs"] = rcs_size
+        if primary_src != "全部":
+            where_clauses.append("primary_source = :psrc")
+            params["psrc"] = primary_src
+        if enrich_filter == "含 UCS 数据":
+            where_clauses.append("has_ucs = true")
+        elif enrich_filter == "含 ESA 数据":
+            where_clauses.append("has_esa = true")
+        elif enrich_filter == "有用途信息":
+            where_clauses.append("inferred_purpose IS NOT NULL")
+        elif enrich_filter == "有用户类型信息":
+            where_clauses.append("inferred_users IS NOT NULL")
+
+        where_sql = " AND ".join(where_clauses)
+        df = run_query(f"""
+            SELECT
+                norad_cat_id   AS "NORAD ID",
+                name           AS "名称",
+                CASE object_type
+                    WHEN 'DEBRIS'      THEN '碎片'
+                    WHEN 'PAYLOAD'     THEN '载荷'
+                    WHEN 'ROCKET BODY' THEN '箭体'
+                    ELSE object_type
+                END            AS "类型",
+                country_code   AS "国家",
+                launch_date    AS "发射日期",
+                ROUND(perigee_km::numeric, 1) AS "近地点(km)",
+                ROUND(apogee_km::numeric, 1)  AS "远地点(km)",
+                ROUND(inclination::numeric, 2) AS "倾角(°)",
+                rcs_size       AS "RCS",
+                primary_source AS "主数据源",
+                CASE WHEN has_ucs THEN '✓' ELSE '' END AS "UCS",
+                CASE WHEN has_esa THEN '✓' ELSE '' END AS "ESA",
+                inferred_purpose AS "用途",
+                inferred_users   AS "用户类型",
+                ucs_purpose    AS "用途(UCS原始)",
+                ucs_users      AS "用户(UCS原始)",
+                ROUND(esa_mass_kg::numeric, 2) AS "质量kg(ESA)",
+                ROUND(esa_cross_section_m2::numeric, 4) AS "截面m²(ESA)",
+                esa_mission    AS "任务(ESA)",
+                CASE esa_active WHEN true THEN '在轨' WHEN false THEN '已衰减' ELSE '' END AS "状态(ESA)"
+            FROM v_unified_objects
+            WHERE {where_sql}
+            ORDER BY (name IS NOT NULL) DESC, launch_date DESC NULLS LAST, norad_cat_id DESC
+            LIMIT 2000
+        """, params)
+
+        st.write(f"**共 {len(df)} 条记录**（最多显示 2000 条）")
+        if not df.empty:
+            st.dataframe(df, use_container_width=True, height=550)
+        else:
+            st.warning("当前筛选条件下无数据，请调整筛选范围或检查数据摄入状态。")
+
+    # ── Tab 2：Asterank 小行星 / NEO 独立目录 ────────────────────────────
+    with _cat_tab_aster:
+        st.caption(
+            "Asterank 数据源（http://www.asterank.com） 维护的小行星 / 近地天体（NEO）"
+            "开放目录。与地球在轨目标不同，这里是围绕太阳运行的天体，包含开普勒轨道"
+            "根数、经济开采估值（price/profit）、Δv、光谱类型等字段。"
+        )
+
+        try:
+            _ast_total = run_query("SELECT COUNT(*) AS n FROM external_asterank")
+            _ast_n = int(_ast_total.iloc[0]["n"]) if not _ast_total.empty else 0
+        except Exception:
+            _ast_n = 0
+            st.warning(
+                "未检测到 `external_asterank` 表。请先运行："
+                "`python scripts/ingest_asterank.py`（容器内："
+                "`docker compose run --rm app python scripts/ingest_asterank.py`）"
+                "后刷新页面。"
+            )
+
+        if _ast_n > 0:
+            with st.expander("筛选条件", expanded=True):
+                ac1, ac2, ac3 = st.columns(3)
+                ast_name = ac1.text_input("名称关键词", "", key="_ast_name")
+                ast_class = ac2.text_input("轨道族 class（如 APO、AMO、ATE）", "", key="_ast_class")
+                ast_spec = ac3.text_input("光谱类型 spec", "", key="_ast_spec")
+
+                ac4, ac5, ac6 = st.columns(3)
+                ast_dv_max = ac4.number_input("Δv 上限 (km/s) — 越小越易开采", value=0.0, step=1.0,
+                                              help="0 表示不限制", key="_ast_dv")
+                ast_diam_min = ac5.number_input("最小直径 (km)", value=0.0, step=0.1, key="_ast_diam")
+                ast_profit_min = ac6.number_input("最小估值 profit ($)", value=0.0, step=1.0e8,
+                                                  format="%.2e", key="_ast_profit")
+
+            a_where: list[str] = []
+            a_params: dict = {}
+            if ast_name.strip():
+                a_where.append("(full_name ILIKE :an OR prov_des ILIKE :an)")
+                a_params["an"] = f"%{ast_name.strip()}%"
+            if ast_class.strip():
+                a_where.append('"class" ILIKE :ac')
+                a_params["ac"] = f"%{ast_class.strip()}%"
+            if ast_spec.strip():
+                a_where.append("spec ILIKE :asp")
+                a_params["asp"] = f"%{ast_spec.strip()}%"
+            if ast_dv_max and ast_dv_max > 0:
+                a_where.append("(dv IS NULL OR dv <= :advm)")
+                a_params["advm"] = float(ast_dv_max)
+            if ast_diam_min and ast_diam_min > 0:
+                a_where.append("diameter >= :adm")
+                a_params["adm"] = float(ast_diam_min)
+            if ast_profit_min and ast_profit_min > 0:
+                a_where.append("profit >= :apm")
+                a_params["apm"] = float(ast_profit_min)
+            a_where_sql = " AND ".join(a_where) if a_where else "TRUE"
+
+            a_df = run_query(f"""
+                SELECT
+                    full_name                          AS "名称",
+                    prov_des                           AS "临时编号",
+                    "class"                            AS "轨道族",
+                    spec                               AS "光谱",
+                    ROUND(a::numeric, 3)               AS "半长轴 a (AU)",
+                    ROUND(e::numeric, 4)               AS "偏心率 e",
+                    ROUND(i::numeric, 3)               AS "倾角 i (°)",
+                    ROUND(per::numeric, 1)             AS "周期 (d)",
+                    ROUND(diameter::numeric, 3)        AS "直径 (km)",
+                    ROUND(albedo::numeric, 3)          AS "反照率",
+                    ROUND(moid::numeric, 4)            AS "MOID (AU)",
+                    ROUND(dv::numeric, 2)              AS "Δv (km/s)",
+                    price                              AS "估值 price ($)",
+                    profit                             AS "利润 profit ($)"
+                FROM external_asterank
+                WHERE {a_where_sql}
+                ORDER BY profit DESC NULLS LAST, diameter DESC NULLS LAST
+                LIMIT 2000
+            """, a_params)
+
+            st.write(f"**共 {len(a_df)} 条记录**（库中共 {_ast_n:,} 条；最多显示 2000 条）")
+            if not a_df.empty:
+                st.dataframe(a_df, use_container_width=True, height=550)
+            else:
+                st.info("当前筛选条件下无数据。")
 
 # ------------------------------------------------------------------
 # 页面：轨迹片段（已迁移到可视化探索 → 轨道预报）

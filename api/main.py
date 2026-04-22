@@ -126,7 +126,9 @@ def query_by_rcs(q: RCSQuery):
 
 @app.get("/api/v1/stats", tags=["系统统计"],
          summary="系统概况统计",
-         description="返回数据库中各类目标的总数、数据源统计等概况信息。")
+         description="返回数据库中各类目标的总数、数据源统计等概况信息，"
+                     "包括多源融合目录（Space-Track / UCS / ESA DISCOS）与"
+                     "独立专题库（GCAT / UNOOSA / Asterank）的入库条数。")
 def system_stats():
     from database.db import session_scope
     from sqlalchemy import text
@@ -141,11 +143,47 @@ def system_stats():
             traj_count = sess.execute(text(
                 "SELECT COUNT(*) FROM trajectory_segments"
             )).scalar() or 0
+
+            # External / supplementary sources — best-effort; 0 if table absent
+            external_sources: dict = {}
+            _ext_tables = [
+                ("ucs",       "external_ucs_satellites"),
+                ("esa_discos", "external_esa_discos"),
+                ("gcat_yearly_launches",        "external_yearly_launches"),
+                ("gcat_cumulative_onorbit",     "external_cumulative_onorbit"),
+                ("gcat_country_yearly_payload", "external_country_yearly_payload"),
+                ("gcat_onorbit_snapshot",       "external_onorbit_snapshot"),
+                ("unoosa",    "external_unoosa_launches"),
+                ("asterank",  "external_asterank"),
+            ]
+            for key, tbl in _ext_tables:
+                try:
+                    external_sources[key] = int(
+                        sess.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar() or 0
+                    )
+                except Exception:
+                    external_sources[key] = 0
+
+            # Unified view — may not exist on fresh init-db
+            try:
+                unified_total = int(
+                    sess.execute(text("SELECT COUNT(*) FROM v_unified_objects")).scalar() or 0
+                )
+                n_sources = int(sess.execute(text(
+                    "SELECT COUNT(DISTINCT primary_source) FROM v_unified_objects"
+                )).scalar() or 0)
+            except Exception:
+                unified_total = 0
+                n_sources = 0
+
         return {
             "catalog_total": total,
             "by_type": {r[0]: r[1] for r in types},
             "gp_elements_count": gp_count,
             "trajectory_segments_count": traj_count,
+            "unified_total": unified_total,
+            "unified_primary_sources": n_sources,
+            "external_sources": external_sources,
         }
     except Exception as exc:
         return {"error": str(exc)}

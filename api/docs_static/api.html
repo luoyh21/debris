@@ -153,6 +153,14 @@
   💡 <strong>提示：</strong>将示例中的 <code>&lt;your-host&gt;</code> 替换为系统实际部署的主机名或 IP 地址。如果在本机访问，使用 <code>localhost</code>。
 </div>
 
+<h2>关于 Asterank 小行星数据</h2>
+<p>上述 6 个 REST 接口全部作用于<strong>地球在轨目标</strong>（Space-Track 主目录 + UCS/ESA 增强字段），不涉及 Asterank 小行星 / 近地天体（NEO）专题库。要访问 Asterank 数据，可通过以下两种方式：</p>
+<ul>
+  <li>交互式浏览与筛选：前往 <a href="/docs/modules/catalog">目标目录</a> 页面的「小行星 / NEO (Asterank)」标签页，按轨道族、光谱、Δv、直径、利润筛选。</li>
+  <li>检查入库条数：调用 <a href="/docs/api/stats"><code>/api/v1/stats</code></a>，其 <code>external_sources.asterank</code> 字段返回 <code>external_asterank</code> 表中的记录数。</li>
+</ul>
+<p>如需直接从数据库中读取 Asterank 数据，可通过标准的 PostgreSQL 客户端查询 <code>external_asterank</code> 表；字段含义见 <a href="/docs/modules/catalog">目标目录</a> 页面的「小行星 / NEO (Asterank)」数据列说明。</p>
+
 </div>
 <script src="/docs/toc.js"></script>
 </body>
