@@ -577,6 +577,43 @@ python run.py api --port 8000
 - **http://localhost:8000/docs** — 系统说明文档
 - **http://localhost:8000/api/docs** — REST API Swagger 交互文档
 
+### Step 9：持续化管理 — 按时间增量更新
+
+完成首次全量摄入后，日常维护只需根据**上一次更新时间**做增量同步即可，无需重跑全量。脚本 `scripts/ingest_incremental.py` 会自动用 API 服务端过滤 + 本地文件按列过滤，只拉取 / 合并 since 之后的新增 / 变更行（DELETE-by-PK + INSERT，幂等可重复运行）。
+
+**1. 查看上一次更新时间**（任选一项作为下一次的 `--since` 起点）：
+
+```powershell
+$env:PGPASSWORD = "postgres"
+psql -U postgres -h localhost -d space_debris -c "SELECT MAX(updated_at) AS last_st FROM catalog_objects;"
+psql -U postgres -h localhost -d space_debris -c "SELECT MAX(ingested_at) AS last_gp  FROM gp_elements;"
+```
+
+**2. 执行增量更新**（把 `<since>` 替换为上面查到的时间，日期或 ISO 时间戳均可）：
+
+```powershell
+# 一次性更新全部 7 个数据源（默认：增量后顺带刷新 v_unified_objects）
+python scripts/ingest_incremental.py --since 2026-04-22
+
+# 也可只更新指定源（多源逗号分隔）
+python scripts/ingest_incremental.py --since 2026-04-22 --sources spacetrack,esa,techport
+
+# 跳过 SGP4 重新传播（更快），跳过 v_unified_objects 刷新
+python scripts/ingest_incremental.py --since 2026-04-22 --no-propagate --no-refresh-views
+```
+
+**注意事项**：
+
+- **GCAT / UCS 是本地文件源**：脚本运行时会先在终端打印一条提醒横幅，请按提示手动把 `data/external/jm_satcat.tsv`、`data/external/ucs_satellites.xlsx` 替换为上游最新版后再运行；如未更新文件，则只是按 `--since` 重切已有文件，结果与上一次相同。
+- **Space-Track / ESA / UNOOSA / Asterank / TechPort 走 API**：服务端 / 索引侧过滤，`--since` 越新拉得越快。
+- 可以挂到 Windows 任务计划程序里每日定时跑（示例使用 PowerShell 取昨天日期）：
+
+  ```powershell
+  $since = (Get-Date).AddDays(-1).ToString("yyyy-MM-dd")
+  cd C:\path\to\debris; .\venv\Scripts\Activate.ps1
+  python scripts\ingest_incremental.py --since $since *>> logs\incr.log
+  ```
+
 ### 需要补充的文件
 
 以下文件包含敏感信息或大文件，不在 Git 仓库中，需手动准备：
@@ -627,6 +664,9 @@ python scripts/create_unified_view.py
 # 8. 启动前端 + API 服务（两个终端）
 python run.py app --port 8501               # 终端 A：Streamlit 前端 → http://localhost:8501
 python run.py api --port 8000               # 终端 B：API + 文档 → http://localhost:8000/docs
+
+# 9. 持续化管理：按上次更新时间做增量同步（日常维护）
+python scripts/ingest_incremental.py --since 2026-04-22
 ```
 
 ### 常见问题
@@ -835,6 +875,45 @@ nohup python run.py app --port 8501 > logs/app.log 2>&1 &
 nohup python run.py api --port 8502 > logs/api.log 2>&1 &
 ```
 
+### Step 10：持续化管理 — 按时间增量更新
+
+完成首次全量摄入后，日常维护只需根据**上一次更新时间**做增量同步即可，无需重跑全量。脚本 `scripts/ingest_incremental.py` 会自动用 API 服务端过滤 + 本地文件按列过滤，只拉取 / 合并 since 之后的新增 / 变更行（DELETE-by-PK + INSERT，幂等可重复运行）。
+
+**1. 查看上一次更新时间**（任选一项作为下一次的 `--since` 起点）：
+
+```bash
+sudo -u postgres psql -d space_debris -c "SELECT MAX(updated_at)   AS last_st FROM catalog_objects;"
+sudo -u postgres psql -d space_debris -c "SELECT MAX(ingested_at)  AS last_gp FROM gp_elements;"
+```
+
+**2. 执行增量更新**（把 `<since>` 替换为上面查到的时间，日期或 ISO 时间戳均可）：
+
+```bash
+source venv/bin/activate
+
+# 一次性更新全部 7 个数据源（默认：增量后顺带刷新 v_unified_objects）
+python scripts/ingest_incremental.py --since 2026-04-22
+
+# 也可只更新指定源（多源逗号分隔）
+python scripts/ingest_incremental.py --since 2026-04-22 --sources spacetrack,esa,techport
+
+# 跳过 SGP4 重新传播（更快）+ 跳过统一视图刷新
+python scripts/ingest_incremental.py --since 2026-04-22 --no-propagate --no-refresh-views
+```
+
+**注意事项**：
+
+- **GCAT / UCS 是本地文件源**：脚本运行时会先打印一条提醒横幅，请按提示手动把 `data/external/jm_satcat.tsv`、`data/external/ucs_satellites.xlsx` 替换为上游最新版后再运行；如未更新文件，则只是按 `--since` 重切已有文件，结果与上一次相同。
+- **Space-Track / ESA / UNOOSA / Asterank / TechPort 走 API**：服务端 / 索引侧过滤，`--since` 越新拉得越快。
+- 推荐挂到 cron 每天 06:00 自动跑（自动取昨天日期作为 since）：
+
+  ```cron
+  0 6 * * * cd /path/to/debris && /path/to/venv/bin/python scripts/ingest_incremental.py \
+            --since "$(date -d 'yesterday' +\%Y-\%m-\%d)" >> logs/incr.log 2>&1
+  ```
+
+  或用 systemd timer：`/etc/systemd/system/debris-incremental.{service,timer}`，参考 [Linux 常见问题] 一节。
+
 ### 完整命令汇总（一键复制）
 
 ```bash
@@ -871,6 +950,9 @@ python run.py refresh-views
 # 8. 启动前端 + API（两个终端）
 python run.py app --port 8501               # → http://localhost:8501
 python run.py api --port 8502               # → http://localhost:8502/docs
+
+# 9. 持续化管理：按上次更新时间做增量同步（日常维护，可挂 cron）
+python scripts/ingest_incremental.py --since 2026-04-22
 ```
 
 ### Linux 常见问题
