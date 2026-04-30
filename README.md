@@ -261,6 +261,7 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
 | **UCS Satellite Database** | 在轨卫星详情 | **7,560 条**（105 国） | 忧思科学家联盟维护，含卫星用途（军/民/商）、运营商、设计寿命、发射质量、轨道参数 |
 | **ESA DISCOS** | 欧空局空间物体数据库 | **10,000 条**（API 批量获取） | 欧洲空间局 DISCOSweb API，含物体质量、截面积、碎片数量、预测再入日期 |
 | **Asterank** | 小行星 / 近地天体（NEO）专题库 | **数千条**（API + 本地缓存） | http://www.asterank.com 维护，含小行星开普勒轨道根数、光谱类型、Δv、经济开采估值（price/profit） |
+| **NASA TechPort** | 航天技术项目组合（technology portfolio） | **~20,000 个项目**（REST API + 本地缓存） | https://techport.nasa.gov/help/api ；含 NASA 资助的技术项目、TRL、组织、分类、起止日期、目标方向；可选 API Token（每次刷新 TechPort 站点都会换 token） |
 
 系统自动完成数据去重与清洗：
 - Space-Track 数据用于实时轨道传播（SGP4）和碰撞风险计算
@@ -279,6 +280,7 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
 | `external_esa_discos`       | ESA DISCOS 物体物理参数（10,000 行） |
 | `external_unoosa_launches`  | UNOOSA 年度发射统计（1,274 行） |
 | `external_asterank`         | Asterank 小行星 / NEO 专题库（数千行） |
+| `external_techport`         | NASA TechPort 航天技术项目组合（~20,000 项目，含 TRL、机构、分类、起止日期） |
 
 ### 二、轨道力学仿真
 
@@ -395,6 +397,7 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 | **UCS Satellite Database** | ✅ 已接入 | `external_ucs_satellites` | 7,560 条，105 国，含用途/运营商/寿命/质量 |
 | **ESA DISCOS** | ✅ 已接入 | `external_esa_discos` | 10,000 条，含质量/截面积/碎片数/预测再入 |
 | **Asterank** | ✅ 已接入 | `external_asterank` | 小行星 / NEO 专题库，含开普勒根数、光谱、Δv、估值（`scripts/ingest_asterank.py`） |
+| **NASA TechPort** | ✅ 已接入 | `external_techport` | 航天技术项目组合（~20,000 项目），含 TRL/机构/分类（`scripts/ingest_techport.py`，token 可刷新） |
 
 ## Windows 本地部署（无 Docker）
 
@@ -491,11 +494,11 @@ psql -U postgres -h localhost -d space_debris -c "CREATE EXTENSION IF NOT EXISTS
 python run.py init-db
 ```
 
-### Step 6：拉取全量数据（6 个数据源）
+### Step 6：拉取全量数据（7 个数据源）
 
-数据摄入分两步，可在不同终端窗口中并行执行：
+数据摄入分两步，可在不同终端窗口中并行执行（默认全量、不限条数）：
 
-**终端 1 — Space-Track（核心数据，约 30–90 分钟）：**
+**终端 1 — Space-Track（核心数据，约 30–90 分钟，全量约 29,000 条）：**
 
 ```powershell
 .\venv\Scripts\Activate.ps1
@@ -503,41 +506,42 @@ python run.py ingest
 ```
 
 > 首次运行需要从 Space-Track.org 下载约 29,000 条在轨目标数据，含 SGP4 轨道传播和轨迹段写入。  
-> 如想快速验证，可先 `python run.py ingest --limit 1000` 只拉 1000 条。
+> 仅在调试阶段需要冒烟测试时可加 `--limit 1000`，正式部署务必全量拉取。
 
-**终端 2 — 外部数据源（GCAT + UNOOSA + UCS + ESA DISCOS）：**
+**终端 2 — 全部外部数据源（GCAT + UNOOSA + UCS + ESA DISCOS + Asterank + NASA TechPort）：**
 
 ```powershell
 .\venv\Scripts\Activate.ps1
 python scripts/ingest_external.py
 ```
 
-> 此命令依次拉取 4 个外部数据源：
+> 此命令一次性同步全部 6 个外部 / 专题数据源（无 `--limit` 即全量）：
 > - **GCAT**（Jonathan McDowell 发射日志）— 从本地 `data/external/jm_satcat.tsv` 导入
 > - **UNOOSA**（联合国发射统计）— 从 API 自动下载
 > - **UCS**（在轨卫星数据库）— 从本地 `data/external/ucs_satellites.xlsx` 导入
 > - **ESA DISCOS**（欧空局物体数据库）— 从 API 获取（需要 `ESA_DISCOS_TOKEN`），约 20 分钟
+> - **Asterank**（小行星 / NEO 专题库）— 公开 API + 本地 `data/external/asterank.json` 缓存
+> - **NASA TechPort**（航天技术项目组合）— 公开 REST API；`/api/projects/{id}` 逐项拉取后写入 `external_techport`，~20,000 项目首次约 25–60 分钟，第二次起命中本地缓存只需几秒
 
 也可单独运行某个数据源：
 
 ```powershell
-python scripts/ingest_external.py --ucs       # 仅 UCS
-python scripts/ingest_external.py --esa       # 仅 ESA DISCOS
-python scripts/ingest_external.py --unoosa    # 仅 UNOOSA
-python scripts/ingest_external.py --gcat      # 仅 GCAT
-python scripts/ingest_external.py --limit 500 # 每源各限制 500 条（冒烟测试）
+python scripts/ingest_external.py --ucs        # 仅 UCS
+python scripts/ingest_external.py --esa        # 仅 ESA DISCOS
+python scripts/ingest_external.py --unoosa     # 仅 UNOOSA
+python scripts/ingest_external.py --gcat       # 仅 GCAT
+python scripts/ingest_external.py --asterank   # 仅 Asterank
+python scripts/ingest_external.py --techport   # 仅 NASA TechPort
+python scripts/ingest_external.py --limit 500  # 每源各限制 500 条（冒烟测试）
 ```
 
-**终端 3 — Asterank 小行星 / NEO 专题库（几秒内完成）：**
-
-```powershell
-.\venv\Scripts\Activate.ps1
-python scripts/ingest_asterank.py              # 默认拉取 5000 条
-python scripts/ingest_asterank.py --limit 500  # 限制 500 条
-```
-
-> Asterank 数据独立于地球在轨目标（不进入 `v_unified_objects`），
-> 入库到 `external_asterank` 表，可在目标目录页的「小行星 / NEO (Asterank)」标签查看。
+> Asterank（小行星 / NEO）与 TechPort（航天技术项目）属于专题数据源，
+> 不进入 `v_unified_objects` 地球在轨目标视图，分别入库到 `external_asterank` 与 `external_techport`，
+> 可在目标目录页的「小行星 / NEO (Asterank)」与「NASA 技术项目 (TechPort)」标签查看。
+>
+> NASA TechPort 公开端点无需 token；如果遇到限流或需要私有/草稿数据，
+> 访问 [techport.nasa.gov/help/api](https://techport.nasa.gov/help/api) 复制当前会话 token，  
+> 填入 `.env` 的 `NASA_TECHPORT_TOKEN=`（每次刷新 TechPort 站点会换 token）。
 
 ### Step 7：创建统一视图
 
@@ -613,10 +617,9 @@ psql -U postgres -h localhost -d space_debris -c "CREATE EXTENSION IF NOT EXISTS
 # 5. 初始化表结构
 python run.py init-db
 
-# 6. 拉取数据（两个终端并行）
-python run.py ingest                        # 终端 1：Space-Track
-python scripts/ingest_external.py           # 终端 2：GCAT+UNOOSA+UCS+ESA
-python scripts/ingest_asterank.py           # 终端 3：Asterank 小行星/NEO
+# 6. 拉取全量数据（两个终端并行）
+python run.py ingest                        # 终端 1：Space-Track（~29,000 条，30–90 min）
+python scripts/ingest_external.py           # 终端 2：GCAT + UNOOSA + UCS + ESA + Asterank + TechPort
 
 # 7. 创建统一视图
 python scripts/create_unified_view.py
@@ -637,8 +640,252 @@ python run.py api --port 8000               # 终端 B：API + 文档 → http:/
 | `rocketpy` 安装慢或失败 | `pip install rocketpy --no-build-isolation`，需要已安装 numpy |
 | 端口 5432 被占用 | 检查是否已有 PostgreSQL 服务在运行，或改 `.env` 中的 `DB_PORT` |
 | ESA DISCOS 返回 401 | 在 discosweb.esoc.esa.int 注册获取 Token 填入 `.env` |
+| NASA TechPort 拉取过慢或 429 | 公开端点可不带 token；如频繁限流，可访问 https://techport.nasa.gov/help/api 复制当前会话 token 填入 `NASA_TECHPORT_TOKEN`，或 `--workers 4` 降低并发 |
 | 页面显示"暂无数据" | 检查 Step 6 数据摄入是否完成，Step 7 统一视图是否已创建 |
 | 侧边栏"系统说明文档"打不开 | 确认 API 服务已启动（Step 8 终端 B），检查端口 8000 是否可访问 |
+
+---
+
+## Linux 本地部署（无 Docker）
+
+> 以下步骤适用于 **Ubuntu 20.04 / 22.04 / 24.04**、**Debian 11+**、**Fedora 38+**、
+> **CentOS Stream 9+**、**openSUSE Leap 15+** 以及大多数主流发行版。  
+> 全程不需要 Docker，PostgreSQL 直接装在系统上、Python 依赖装进项目根目录的 `venv` 即可。  
+> 拉数据为 **全量**（无 `--limit`）；涉及 `sudo` 的命令以 Ubuntu 为参考，其他发行版的包管理器请按下表替换。
+
+### 前置条件
+
+| 软件 | 版本 | 备注 |
+|------|------|------|
+| **Python** | 3.10 – 3.12 | `python3 --version` 查看；自带版本不够时建议安装 [pyenv](https://github.com/pyenv/pyenv) |
+| **PostgreSQL + PostGIS** | PG 14/15/16 + PostGIS 3.x | Ubuntu/Debian 用 `apt`；Fedora/CentOS 用 `dnf`；macOS Linuxbrew 用 `brew` |
+| **Git** | 任意 | `git --version` 验证 |
+| **GCC + Python 头文件** | — | 安装 `psycopg2`、`rocketpy`、`shapely` 等需要本地编译扩展 |
+
+### Step 1：安装系统依赖
+
+**Ubuntu / Debian：**
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip python3-dev \
+                    postgresql postgresql-contrib postgis \
+                    build-essential libpq-dev git curl
+```
+
+**Fedora / RHEL / CentOS Stream：**
+
+```bash
+sudo dnf install -y python3 python3-pip python3-devel \
+                    postgresql-server postgresql-contrib postgis \
+                    gcc gcc-c++ make libpq-devel git curl
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+```
+
+**Arch / Manjaro：**
+
+```bash
+sudo pacman -Sy --noconfirm python python-pip postgresql postgis base-devel git curl
+sudo -u postgres initdb -D /var/lib/postgres/data
+sudo systemctl enable --now postgresql
+```
+
+启动并确认 PostgreSQL 在跑：
+
+```bash
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql --no-pager
+```
+
+### Step 2：克隆仓库
+
+```bash
+git clone https://github.com/luoyh21/debris.git
+cd debris
+```
+
+### Step 3：创建 Python 虚拟环境（位于项目目录内）
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+> 若 `psycopg2-binary` 安装失败，可先 `sudo apt install -y libpq-dev` 后改装 `pip install psycopg2`。  
+> 国内网络较慢时可以临时换源：`pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt`。
+
+### Step 4：配置 `.env`
+
+```bash
+cp .env.example .env
+nano .env     # 或 vim / code .env，填入 SPACETRACK / OpenAI / 其他可选 token
+```
+
+最少需要填的 4 项：
+
+```env
+SPACETRACK_USERNAME=your@email.com
+SPACETRACK_PASSWORD=your_password
+
+DB_USER=postgres
+DB_PASSWORD=postgres
+```
+
+可选但建议：`OPENAI_API_KEY`（启用 AI 助手）、`ESA_DISCOS_TOKEN`（ESA 物理参数）、
+`NASA_TECHPORT_TOKEN`（如需私有/草稿 TechPort 数据，每次刷新都需更新）。
+
+### Step 5：创建数据库与 PostGIS 扩展
+
+```bash
+# 切到 postgres 系统账号设置超级用户密码（与 .env 保持一致；这里假设 postgres）
+sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+
+# 创建库 + 启用 PostGIS
+sudo -u postgres psql -c "CREATE DATABASE space_debris;"
+sudo -u postgres psql -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+# 验证
+sudo -u postgres psql -d space_debris -c "SELECT postgis_full_version();"
+```
+
+> 如果你想用普通用户（不是 `postgres`）连接数据库，可：  
+> `sudo -u postgres createuser --superuser $(whoami)` 然后改 `.env` 中的 `DB_USER`。
+
+### Step 6：初始化数据库表结构
+
+```bash
+source venv/bin/activate          # 如还未激活
+python run.py init-db
+```
+
+> 该命令会：① 用 SQLAlchemy 建基础表；② 应用 `database/migrations/*.sql`
+>（自动创建 `v_debris_density` / `v_high_risk_events` 等视图）；
+> ③ 尽力刷新 `v_unified_objects` 物化视图（首次 external_* 表为空时会自动跳过）。
+
+### Step 7：拉取全量数据（7 个数据源）
+
+数据摄入分两步，可在两个独立终端并行执行（默认全量、不限条数）：
+
+**终端 1 — Space-Track（核心数据，约 30–90 分钟，全量约 29,000 条）：**
+
+```bash
+source venv/bin/activate
+python run.py ingest
+```
+
+**终端 2 — 全部外部数据源（GCAT + UNOOSA + UCS + ESA DISCOS + Asterank + NASA TechPort）：**
+
+```bash
+source venv/bin/activate
+python scripts/ingest_external.py
+```
+
+> 一次性拉取全部 6 个外部 / 专题数据源（无 `--limit` 即全量）。  
+> 各数据源都做了本地缓存：第二次起命中缓存只需几秒即可重建表。
+
+也可单独运行：
+
+```bash
+python scripts/ingest_external.py --gcat       # 仅 GCAT
+python scripts/ingest_external.py --unoosa     # 仅 UNOOSA
+python scripts/ingest_external.py --ucs        # 仅 UCS
+python scripts/ingest_external.py --esa        # 仅 ESA DISCOS
+python scripts/ingest_external.py --asterank   # 仅 Asterank（小行星）
+python scripts/ingest_external.py --techport   # 仅 NASA TechPort
+python scripts/ingest_external.py --limit 500  # 各源限 500 条（冒烟测试）
+
+# 或直接调用专题脚本
+python scripts/ingest_techport.py              # NASA TechPort 全量
+python scripts/ingest_techport.py --workers 16 # 提高并发
+python scripts/ingest_techport.py --offline    # 仅用本地缓存重建表
+```
+
+> NASA TechPort 公开端点无需 token；如果遇到限流或需要私有 / 草稿数据，  
+> 访问 [techport.nasa.gov/help/api](https://techport.nasa.gov/help/api) 复制当前会话 token，  
+> 填入 `.env` 的 `NASA_TECHPORT_TOKEN=`（每次刷新页面都会换 token）。
+
+### Step 8：刷新统一视图
+
+```bash
+python run.py refresh-views
+```
+
+> 等价于：再跑一遍 SQL 迁移 + 重新构建 `v_unified_objects`（合并 Space-Track / UCS / ESA DISCOS）。  
+> 每次 ingest 完都建议刷一下，目录页才能看到最新统计。
+
+### Step 9：启动系统（两个终端）
+
+```bash
+# 终端 A — Streamlit 前端 → http://localhost:8501
+source venv/bin/activate
+python run.py app --port 8501
+
+# 终端 B — FastAPI + 系统说明文档 → http://localhost:8502/docs
+source venv/bin/activate
+python run.py api --port 8502
+```
+
+也可用 `nohup` / `tmux` / `systemd` 让两个服务后台常驻，例如：
+
+```bash
+nohup python run.py app --port 8501 > logs/app.log 2>&1 &
+nohup python run.py api --port 8502 > logs/api.log 2>&1 &
+```
+
+### 完整命令汇总（一键复制）
+
+```bash
+# 1. 系统依赖（Ubuntu/Debian；其他发行版替换包管理器）
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip python3-dev \
+                    postgresql postgresql-contrib postgis \
+                    build-essential libpq-dev git curl
+sudo systemctl enable --now postgresql
+
+# 2. 克隆 + 虚拟环境
+git clone https://github.com/luoyh21/debris.git && cd debris
+python3 -m venv venv && source venv/bin/activate
+pip install --upgrade pip && pip install -r requirements.txt
+
+# 3. 环境变量
+cp .env.example .env && nano .env
+
+# 4. 创建数据库
+sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+sudo -u postgres psql -c "CREATE DATABASE space_debris;"
+sudo -u postgres psql -d space_debris -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+# 5. 初始化表结构 + 迁移
+python run.py init-db
+
+# 6. 拉取全量数据（两个终端并行）
+python run.py ingest                        # 终端 1：Space-Track（~29,000 条，30–90 min）
+python scripts/ingest_external.py           # 终端 2：GCAT + UNOOSA + UCS + ESA + Asterank + TechPort
+
+# 7. 刷新统一视图
+python run.py refresh-views
+
+# 8. 启动前端 + API（两个终端）
+python run.py app --port 8501               # → http://localhost:8501
+python run.py api --port 8502               # → http://localhost:8502/docs
+```
+
+### Linux 常见问题
+
+| 问题 | 解决方法 |
+|------|----------|
+| `pg_isready: command not found` | 安装 `postgresql-client` 包：`sudo apt install postgresql-client` |
+| `psycopg2` 编译失败 | 先 `sudo apt install -y libpq-dev python3-dev`，再 `pip install psycopg2-binary` |
+| `peer authentication failed for user "postgres"` | 编辑 `/etc/postgresql/*/main/pg_hba.conf`，把 `peer` 改成 `md5` 或 `scram-sha-256`，然后 `sudo systemctl restart postgresql` |
+| `CREATE EXTENSION postgis` 报找不到扩展 | 安装 `postgis` / `postgresql-NN-postgis-3` 软件包后重启 PostgreSQL |
+| Streamlit 跑在远程机器看不到页面 | 默认绑定 0.0.0.0；确认防火墙：`sudo ufw allow 8501/tcp && sudo ufw allow 8502/tcp` |
+| systemd 启动 PostgreSQL 报 cluster 未初始化 | Fedora/RHEL 上先 `sudo postgresql-setup --initdb` 再 `systemctl start postgresql` |
+| 拉 GCAT 时报本地 TSV 不存在 | `mkdir -p data/external && curl -L -o data/external/jm_satcat.tsv https://planet4589.org/space/gcat/tsv/cat/satcat.tsv` |
+| TechPort 拉到一半 429 | 直接重跑：脚本会从 `data/external/techport_projects.jsonl` 缓存断点续传，并自动指数退避 |
+| 端口 8501 / 8502 已占用 | `--port` 参数指定其他端口，或 `lsof -i:8501` 找到旧进程 kill 掉 |
 
 ---
 

@@ -437,7 +437,7 @@ with _docs_bt:
     )
 st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank")
+st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank · NASA TechPort")
 
 # Track current page in session_state so sidebar fragments can read it.
 # Also clear LCOLA done notification when user visits the LCOLA page.
@@ -756,9 +756,10 @@ if page == "overview":
         st.caption(f"融合 **{_n_src}** 个数据源 · 去重后共 **{_n:,}** 个空间目标")
 
     # Supplementary: GCAT launch history + UNOOSA aggregate stats + Asterank
-    # (asteroids / NEO).  These are NOT Earth-orbiting satellites/debris, so
-    # they live in their own tables rather than v_unified_objects.
-    with st.expander("补充与专题数据源（历史发射统计 · 小行星）", expanded=False):
+    # (asteroids / NEO) + NASA TechPort (technology project portfolio). These
+    # are NOT Earth-orbiting satellites/debris, so they live in their own
+    # tables rather than v_unified_objects.
+    with st.expander("补充与专题数据源（发射统计 · 小行星 · NASA 技术项目）", expanded=False):
         _aux_rows = []
         _aux_tables = [
             ("external_yearly_launches",        "GCAT 年度发射统计"),
@@ -766,6 +767,7 @@ if page == "overview":
             ("external_country_yearly_payload", "GCAT 国别载荷统计"),
             ("external_unoosa_launches",        "UNOOSA 年度发射统计"),
             ("external_asterank",               "Asterank 小行星 / 近地天体目录"),
+            ("external_techport",               "NASA TechPort 航天技术项目组合"),
         ]
         for tbl, label in _aux_tables:
             try:
@@ -780,8 +782,10 @@ if page == "overview":
             st.dataframe(_aux_df, use_container_width=True, hide_index=True)
             st.caption(
                 "GCAT / UNOOSA 为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析；"
-                "Asterank 为独立的小行星/近地天体专题库（来自 http://www.asterank.com），"
-                "与地球在轨目标目录相互独立，可在目标目录页的「专题：小行星 (Asterank)」标签查看。"
+                "Asterank 为独立的小行星/近地天体专题库（http://www.asterank.com），"
+                "TechPort 为 NASA 航天技术项目组合（https://techport.nasa.gov），"
+                "三者均与地球在轨目标目录相互独立，分别可在目标目录页的"
+                "「小行星 / NEO (Asterank)」与「NASA 技术项目 (TechPort)」标签查看。"
             )
 
 # ------------------------------------------------------------------
@@ -797,10 +801,11 @@ elif page == "viz":
 elif page == "catalog":
     st.markdown(title_row("catalog", "空间目标统一目录"), unsafe_allow_html=True)
     st.caption("融合 Space-Track、UCS Satellite Database、ESA DISCOS 三大数据源，"
-               "按 NORAD ID 去重后统一展示；此外提供独立的 Asterank 小行星 / 近地天体专题库。")
+               "按 NORAD ID 去重后统一展示；此外提供独立的 Asterank 小行星 / 近地天体目录、"
+               "以及 NASA TechPort 航天技术项目组合（不同物理实体，分别浏览）。")
 
-    _cat_tab_earth, _cat_tab_aster = st.tabs(
-        ["地球在轨目标（多源融合）", "小行星 / NEO（Asterank）"]
+    _cat_tab_earth, _cat_tab_aster, _cat_tab_tp = st.tabs(
+        ["地球在轨目标（多源融合）", "小行星 / NEO（Asterank）", "NASA 技术项目 (TechPort)"]
     )
 
     with _cat_tab_earth:
@@ -992,6 +997,158 @@ elif page == "catalog":
             st.write(f"**共 {len(a_df)} 条记录**（库中共 {_ast_n:,} 条；最多显示 2000 条）")
             if not a_df.empty:
                 st.dataframe(a_df, use_container_width=True, height=550)
+            else:
+                st.info("当前筛选条件下无数据。")
+
+    # ── Tab 3：NASA TechPort 航天技术项目组合 ───────────────────────────
+    with _cat_tab_tp:
+        st.caption(
+            "NASA TechPort 数据源（https://techport.nasa.gov） 维护的 NASA 资助 / 跟踪的"
+            "技术项目组合。包含项目标题、描述、TRL（Technology Readiness Level）、"
+            "起止日期、责任组织、技术分类（NASA Taxonomy）、目标方向（Earth/Moon/Mars …）等字段，"
+            "与地球在轨目标 / 小行星目录相互独立，存储于 `external_techport` 表。"
+        )
+
+        try:
+            _tp_total = run_query("SELECT COUNT(*) AS n FROM external_techport")
+            _tp_n = int(_tp_total.iloc[0]["n"]) if not _tp_total.empty else 0
+        except Exception:
+            _tp_n = 0
+            st.warning(
+                "未检测到 `external_techport` 表。请先运行："
+                "`python scripts/ingest_techport.py`（容器内："
+                "`docker compose run --rm app python scripts/ingest_techport.py`）"
+                "后刷新页面。"
+            )
+
+        if _tp_n > 0:
+            with st.expander("筛选条件", expanded=True):
+                tc1, tc2, tc3 = st.columns(3)
+                tp_kw       = tc1.text_input("名称 / 描述关键词", "", key="_tp_kw")
+                tp_status   = tc2.selectbox(
+                    "项目状态",
+                    ["全部", "Active", "Completed", "Pending", "Cancelled"],
+                    key="_tp_status",
+                )
+                tp_org_type = tc3.selectbox(
+                    "责任组织类型",
+                    ["全部", "Academia", "Industry", "NASA_Center",
+                     "NASA_Research_Center", "Other_Government_Agency"],
+                    key="_tp_org_type",
+                )
+
+                tc4, tc5, tc6 = st.columns(3)
+                tp_country = tc4.text_input("国家代码（如 US、CA、JPN）", "",
+                                            key="_tp_country")
+                tp_tx_code = tc5.text_input("技术分类 code（如 TX06、TX17）", "",
+                                            key="_tp_tx_code",
+                                            help="TX01–TX17，可只填前缀做模糊匹配")
+                tp_trl_min = tc6.number_input("TRL 当前下限（1–9）", min_value=0,
+                                              max_value=9, value=0, step=1,
+                                              key="_tp_trl_min",
+                                              help="0 表示不限制")
+
+                tc7, tc8 = st.columns(2)
+                tp_year_min = tc7.number_input("起始年份 ≥", min_value=0,
+                                               max_value=2100, value=0, step=1,
+                                               key="_tp_year_min",
+                                               help="0 表示不限制")
+                tp_year_max = tc8.number_input("结束年份 ≤", min_value=0,
+                                               max_value=2100, value=0, step=1,
+                                               key="_tp_year_max",
+                                               help="0 表示不限制")
+
+            t_where: list[str] = []
+            t_params: dict = {}
+            if tp_kw.strip():
+                t_where.append("(title ILIKE :tk OR description ILIKE :tk)")
+                t_params["tk"] = f"%{tp_kw.strip()}%"
+            if tp_status != "全部":
+                t_where.append("status = :ts")
+                t_params["ts"] = tp_status
+            if tp_org_type != "全部":
+                t_where.append("lead_org_type = :tot")
+                t_params["tot"] = tp_org_type
+            if tp_country.strip():
+                t_where.append("lead_org_country = :tc")
+                t_params["tc"] = tp_country.strip().upper()
+            if tp_tx_code.strip():
+                t_where.append("primary_tx_code ILIKE :ttc")
+                t_params["ttc"] = f"{tp_tx_code.strip()}%"
+            if tp_trl_min and tp_trl_min > 0:
+                t_where.append("trl_current >= :ttrl")
+                t_params["ttrl"] = int(tp_trl_min)
+            if tp_year_min and tp_year_min > 0:
+                t_where.append("start_year >= :tymin")
+                t_params["tymin"] = int(tp_year_min)
+            if tp_year_max and tp_year_max > 0:
+                t_where.append("end_year <= :tymax")
+                t_params["tymax"] = int(tp_year_max)
+            t_where_sql = " AND ".join(t_where) if t_where else "TRUE"
+
+            t_df = run_query(f"""
+                SELECT
+                    project_id          AS "项目 ID",
+                    title               AS "项目名称",
+                    status              AS "状态",
+                    release_status      AS "发布状态",
+                    start_date          AS "开始",
+                    end_date            AS "结束",
+                    trl_begin           AS "TRL 起",
+                    trl_current         AS "TRL 当前",
+                    trl_end             AS "TRL 终",
+                    program_acronym     AS "项目所属计划",
+                    lead_org_acronym    AS "责任机构",
+                    lead_org_type       AS "机构类型",
+                    lead_org_country    AS "国家",
+                    lead_org_state      AS "州 / 省",
+                    primary_tx_code     AS "技术分类 code",
+                    primary_tx_title    AS "技术分类",
+                    destination_types   AS "目标方向",
+                    view_count          AS "浏览数"
+                FROM external_techport
+                WHERE {t_where_sql}
+                ORDER BY (status='Active') DESC,
+                         trl_current DESC NULLS LAST,
+                         start_date DESC NULLS LAST
+                LIMIT 2000
+            """, t_params)
+
+            st.write(f"**共 {len(t_df)} 条记录**（库中共 {_tp_n:,} 条；最多显示 2000 条）")
+            if not t_df.empty:
+                st.dataframe(t_df, use_container_width=True, height=550)
+
+                # 详情面板：选一个项目展开看 description / benefits 全文
+                _ids = t_df["项目 ID"].dropna().astype(int).tolist()
+                if _ids:
+                    sel_pid = st.selectbox(
+                        "查看项目详情（description / benefits）",
+                        options=[None] + _ids,
+                        format_func=lambda v: ("（不查看）" if v is None
+                                               else f"{v} — "
+                                               + str(t_df.set_index('项目 ID').loc[v, '项目名称'])[:80]),
+                        key="_tp_detail_pid",
+                    )
+                    if sel_pid:
+                        det = run_query(
+                            "SELECT title, description, benefits, "
+                            "primary_tx_title, lead_org_name, status, start_date, end_date "
+                            "FROM external_techport WHERE project_id = :pid",
+                            {"pid": int(sel_pid)},
+                        )
+                        if not det.empty:
+                            row = det.iloc[0]
+                            st.markdown(f"### {row['title']}")
+                            st.caption(
+                                f"状态：{row['status']} ｜ 起止：{row['start_date']} → {row['end_date']} ｜ "
+                                f"责任机构：{row['lead_org_name']} ｜ 技术分类：{row['primary_tx_title']}"
+                            )
+                            if row.get("description"):
+                                st.markdown("**项目描述：**")
+                                st.write(row["description"])
+                            if row.get("benefits"):
+                                st.markdown("**预期效益：**")
+                                st.write(row["benefits"])
             else:
                 st.info("当前筛选条件下无数据。")
 

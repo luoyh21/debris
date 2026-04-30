@@ -5,6 +5,8 @@ Supports:
   - UNOOSA / Our World in Data (API fetch)
   - UCS Satellite Database (xlsx)
   - ESA DISCOS (API fetch)
+  - Asterank (asteroid / NEO catalogue, API + local cache)
+  - NASA TechPort (technology project portfolio, REST API + cache)
 
 All sources perform:
   1. Data cleaning (strip whitespace, normalise types, drop invalid rows)
@@ -12,11 +14,17 @@ All sources perform:
   3. Cross-source overlap report (NORAD IDs shared between sources)
 
 Usage:
-    python3 scripts/ingest_external.py            # all sources
-    python3 scripts/ingest_external.py --gcat      # GCAT only
-    python3 scripts/ingest_external.py --unoosa    # UNOOSA only
-    python3 scripts/ingest_external.py --ucs       # UCS only
-    python3 scripts/ingest_external.py --esa       # ESA DISCOS only
+    python3 scripts/ingest_external.py             # all sources
+    python3 scripts/ingest_external.py --gcat       # GCAT only
+    python3 scripts/ingest_external.py --unoosa     # UNOOSA only
+    python3 scripts/ingest_external.py --ucs        # UCS only
+    python3 scripts/ingest_external.py --esa        # ESA DISCOS only
+    python3 scripts/ingest_external.py --asterank   # Asterank (asteroids) only
+    python3 scripts/ingest_external.py --techport   # NASA TechPort projects only
+    python3 scripts/ingest_external.py --limit 500  # cap rows per source
+
+Set ``NASA_TECHPORT_TOKEN`` in the environment if you have a refreshed
+TechPort API token; otherwise the public read-only endpoints are used.
 """
 import os
 import sys
@@ -680,6 +688,7 @@ def cross_source_report():
         "external_yearly_launches", "external_onorbit_snapshot",
         "external_cumulative_onorbit", "external_country_yearly_payload",
         "external_unoosa_launches", "external_ucs_satellites", "external_esa_discos",
+        "external_asterank", "external_techport",
     ]
     try:
         with engine.connect() as conn:
@@ -718,15 +727,24 @@ def cross_source_report():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingest external data sources")
-    parser.add_argument("--gcat", action="store_true", help="Ingest GCAT only")
-    parser.add_argument("--unoosa", action="store_true", help="Ingest UNOOSA only")
-    parser.add_argument("--ucs", action="store_true", help="Ingest UCS only")
-    parser.add_argument("--esa", action="store_true", help="Ingest ESA DISCOS only")
+    parser.add_argument("--gcat",     action="store_true", help="Ingest GCAT only")
+    parser.add_argument("--unoosa",   action="store_true", help="Ingest UNOOSA only")
+    parser.add_argument("--ucs",      action="store_true", help="Ingest UCS only")
+    parser.add_argument("--esa",      action="store_true", help="Ingest ESA DISCOS only")
+    parser.add_argument("--asterank", action="store_true",
+                        help="Ingest Asterank asteroid / NEO catalogue only")
+    parser.add_argument("--techport", action="store_true",
+                        help="Ingest NASA TechPort technology project portfolio only")
     parser.add_argument("--limit", type=int, default=0,
                         help="Cap rows written per source (0 = no limit)")
+    parser.add_argument("--techport-workers", type=int, default=8,
+                        help="TechPort detail-fetch parallelism (default 8)")
+    parser.add_argument("--techport-token", type=str, default=None,
+                        help="NASA TechPort API token (overrides NASA_TECHPORT_TOKEN)")
     args = parser.parse_args()
 
-    run_all = not (args.gcat or args.unoosa or args.ucs or args.esa)
+    run_all = not (args.gcat or args.unoosa or args.ucs or args.esa
+                   or args.asterank or args.techport)
     t_start = time.time()
 
     lim = int(args.limit) if args.limit and args.limit > 0 else None
@@ -738,6 +756,31 @@ if __name__ == "__main__":
         ingest_ucs(limit=lim)
     if run_all or args.esa:
         ingest_esa_discos(limit=lim)
+    if run_all or args.asterank:
+        try:
+            from scripts.ingest_asterank import ingest_asterank
+        except ImportError:
+            from ingest_asterank import ingest_asterank  # standalone-script run
+        try:
+            n_aster = ingest_asterank(limit=lim if lim is not None else 5000)
+            _STATS["Asterank"] = {"rows_raw": n_aster, "rows_deduped": n_aster,
+                                    "tables": 1, "elapsed": 0.0}
+        except Exception as exc:
+            log.warning("Asterank ingest failed: %s", exc)
+    if run_all or args.techport:
+        try:
+            from scripts.ingest_techport import ingest_techport
+        except ImportError:
+            from ingest_techport import ingest_techport  # standalone-script run
+        try:
+            n_tp = ingest_techport(
+                limit=lim, workers=int(args.techport_workers or 8),
+                token=args.techport_token,
+            )
+            _STATS["TechPort"] = {"rows_raw": n_tp, "rows_deduped": n_tp,
+                                    "tables": 1, "elapsed": 0.0}
+        except Exception as exc:
+            log.warning("TechPort ingest failed: %s", exc)
 
     if run_all:
         cross_source_report()

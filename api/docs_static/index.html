@@ -62,7 +62,7 @@
 
 <h1>空间碎片监测与发射碰撞风险评估系统</h1>
 <p>本系统是一套面向航天发射任务规划人员和空间碎片研究人员的<strong>全链路空间态势感知平台</strong>。从数据采集、轨道预报，到碰撞风险评估和发射窗口优化，提供端到端的决策支持。</p>
-<p>系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong> 五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库；同时提供 8 个交互式功能页面和 6 个 REST API 接口。</p>
+<p>系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong> 五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库 与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；同时提供 8 个交互式功能页面和 6 个 REST API 接口。</p>
 
 <h2>核心功能一览</h2>
 <div class="cards">
@@ -109,6 +109,7 @@
   <tr><td><strong>ESA DISCOS</strong></td><td>欧空局碎片目录、质量、截面积、任务状态</td><td>持续同步</td></tr>
   <tr><td><strong>GCAT (J. McDowell)</strong></td><td>全球发射日志、发射趋势原始数据</td><td>持续更新</td></tr>
   <tr><td><strong>Asterank</strong></td><td>小行星 / NEO 轨道根数、光谱、Δv、经济估值（独立专题库）</td><td>按需拉取</td></tr>
+  <tr><td><strong>NASA TechPort</strong></td><td>NASA 航天技术项目组合（标题 / TRL / 机构 / 分类 / 起止日期），约 20,000 项目</td><td>按需拉取（公开 API；可选 token）</td></tr>
 </table>
 
 <h2>系统能力概览</h2>
