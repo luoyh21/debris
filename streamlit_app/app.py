@@ -120,17 +120,25 @@ def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
 
 
 
-def _bar_chart_zero(data: "pd.Series | pd.DataFrame") -> None:
-    """st.bar_chart replacement that forces the y-axis to start at zero."""
+def _bar_chart_zero(data: "pd.Series | pd.DataFrame",
+                    x_label_angle: int | None = None) -> None:
+    """st.bar_chart replacement that forces the y-axis to start at zero.
+
+    ``x_label_angle`` overrides the X-axis tick label rotation in degrees
+    (e.g. ``0`` for horizontal labels).  Default ``None`` keeps Altair's
+    automatic behaviour (long labels rotate to vertical).
+    """
     import altair as alt
     df = data.reset_index()
     cols = df.columns.tolist()
     x_col, y_col = cols[0], cols[1]
+    x_axis = (alt.Axis(labelAngle=int(x_label_angle))
+              if x_label_angle is not None else alt.Undefined)
     chart = (
         alt.Chart(df)
         .mark_bar()
         .encode(
-            x=alt.X(x_col, sort=None, title=x_col),
+            x=alt.X(x_col, sort=None, title=x_col, axis=x_axis),
             y=alt.Y(y_col, scale=alt.Scale(zero=True), title=y_col),
         )
         .properties(height=300, width="container")
@@ -711,19 +719,44 @@ if page == "overview":
 
     st.markdown(section_title("download", "多源数据摄入状态"), unsafe_allow_html=True)
 
-    # Main breakdown: by source × object type from unified view
+    # Main breakdown: per *source-table* row counts × inferred object type.
+    # We deliberately do NOT pull this from v_unified_objects because that
+    # view dedupes by NORAD ID — an ESA / UCS row that is also present in
+    # Space-Track gets *folded* into the Space-Track row via LEFT JOIN
+    # (with has_esa / has_ucs flags), so the unified view shows only the
+    # *exclusive* portion of each external source.  The摄入状态 table is
+    # supposed to reflect "how many rows did each source contribute", so
+    # we count the underlying source tables directly.
     _src_type_df = run_query("""
-        SELECT
-            primary_source AS 数据源,
-            object_type    AS 目标类型,
-            COUNT(*)       AS 数量
-        FROM v_unified_objects
-        GROUP BY 1, 2
+        SELECT 'Space-Track' AS 数据源, COALESCE(object_type,'UNKNOWN') AS 目标类型,
+               COUNT(*) AS 数量
+        FROM catalog_objects GROUP BY 1, 2
+        UNION ALL
+        SELECT 'UCS', 'PAYLOAD', COUNT(*)
+        FROM external_ucs_satellites
+        UNION ALL
+        SELECT 'ESA-DISCOS',
+            CASE
+                WHEN "objectClass" IN ('Payload','Payload Mission Related Object')
+                     THEN 'PAYLOAD'
+                WHEN "objectClass" = 'Rocket Body'
+                     THEN 'ROCKET BODY'
+                WHEN "objectClass" IN ('Payload Fragmentation Debris',
+                     'Rocket Fragmentation Debris','Payload Debris','Rocket Debris',
+                     'Rocket Mission Related Object','Other Debris')
+                     THEN 'DEBRIS'
+                ELSE 'UNKNOWN'
+            END,
+            COUNT(*)
+        FROM external_esa_discos GROUP BY 2
         ORDER BY 1, 3 DESC
     """)
     _src_total_df = run_query("""
-        SELECT primary_source AS 数据源, COUNT(*) AS 合计
-        FROM v_unified_objects GROUP BY 1 ORDER BY 2 DESC
+        SELECT '数据源' AS 数据源, 0 AS 合计 WHERE FALSE
+        UNION ALL SELECT 'Space-Track', COUNT(*) FROM catalog_objects
+        UNION ALL SELECT 'UCS', COUNT(*) FROM external_ucs_satellites
+        UNION ALL SELECT 'ESA-DISCOS', COUNT(*) FROM external_esa_discos
+        ORDER BY 2 DESC
     """)
 
     if not _src_type_df.empty:
@@ -1586,6 +1619,15 @@ elif page == "ai":
         with col:
             if st.button(label, use_container_width=True, key=f"example_{i}"):
                 st.session_state["_ai_draft"] = question
+                # Streamlit caches the widget's bound value under its key
+                # forever; if we don't clear it, picking a different example
+                # will keep showing the previous question's text.  Reset both
+                # the widget state and a small "version" suffix so the
+                # text_area is fully re-instantiated on the next run.
+                st.session_state.pop("ai_draft_editor", None)
+                st.session_state["_ai_draft_ver"] = (
+                    int(st.session_state.get("_ai_draft_ver", 0)) + 1
+                )
                 st.rerun()
 
     # 处理待发送消息（来自"发送草稿"按钮）
@@ -1610,9 +1652,13 @@ elif page == "ai":
     _ai_draft = st.session_state.get("_ai_draft", "")
     if _ai_draft:
         st.caption("示例问题已填入，可在下方编辑后发送：")
+        # Append the version suffix to the key so each example click yields
+        # a *new* widget instance whose initial value is correctly applied
+        # (Streamlit otherwise re-uses the previous widget's stored value).
+        _ed_key = f"ai_draft_editor_v{int(st.session_state.get('_ai_draft_ver', 0))}"
         edited_draft = st.text_area(
             "问题内容", value=_ai_draft, height=90,
-            key="ai_draft_editor", label_visibility="collapsed",
+            key=_ed_key, label_visibility="collapsed",
         )
         # 使用 HTML 按钮行，避免 st.columns 在窄屏下换行
         st.markdown("""
@@ -2047,4 +2093,4 @@ elif page == "lcola":
             from collections import Counter
             phase_cnt = Counter(ev.phase for ev in report.top_events)
             df_ph = pd.DataFrame(list(phase_cnt.items()), columns=["阶段", "合取事件数"])
-            _bar_chart_zero(df_ph.set_index("阶段"))
+            _bar_chart_zero(df_ph.set_index("阶段"), x_label_angle=0)
