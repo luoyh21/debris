@@ -2573,19 +2573,36 @@ def _render_mission_slider():
                                     max_value=2000, step=50, key="ms_rad")
         auto_stop = c8.checkbox("自动到轨停止",  value=True, key="ms_auto_stop",
                                 help="检测到入轨（近地点 > 150 km）后立即停止仿真，避免多余的轨道圈。")
+        # ── Launch time (UTC) ────────────────────────────────────────────
+        _default_date = (datetime.now(timezone.utc) + timedelta(days=1)).date()
+        cd1, cd2, cd3 = st.columns([2, 1, 1])
+        launch_date = cd1.date_input(
+            "发射日期 (UTC)", value=_default_date, key="ms_launch_date",
+            help="碎片位置将按此日期 + 时刻（UTC）传播，反映实际在轨目标的分布。",
+        )
+        launch_hour = cd2.number_input(
+            "发射时 (UTC)", value=6, min_value=0, max_value=23, step=1, key="ms_launch_h",
+        )
+        launch_minute = cd3.number_input(
+            "发射分 (UTC)", value=0, min_value=0, max_value=59, step=1, key="ms_launch_m",
+        )
         run_btn   = st.button("运行仿真", type="primary", key="ms_run",
                               use_container_width=True)
 
+    # ── Build launch_utc from user inputs (outside expander so always available)
+    _ld = st.session_state.get("ms_launch_date", _default_date)
+    _lh = int(st.session_state.get("ms_launch_h", 6))
+    _lm = int(st.session_state.get("ms_launch_m", 0))
+    _launch_utc_input = datetime(
+        _ld.year, _ld.month, _ld.day, _lh, _lm, 0, tzinfo=timezone.utc
+    )
+
     # ── Run simulation ──────────────────────────────────────────────────────
     if run_btn or "ms_result" not in st.session_state:
-        with st.spinner("运行 6-DOF 仿真（CZ-5B，请稍候）…"):
+        with st.spinner(f"运行 6-DOF 仿真（{vehicle}，请稍候）…"):
             try:
                 from trajectory.rocketpy_sim import SimConfig, simulate
-                launch_utc = (
-                    datetime.now(timezone.utc)
-                    .replace(hour=6, minute=0, second=0, microsecond=0)
-                    + timedelta(days=1)
-                )
+                launch_utc = _launch_utc_input
                 cfg = SimConfig(
                     vehicle_name=vehicle,
                     launch_lat_deg=float(lat_l),
@@ -2631,7 +2648,7 @@ def _render_mission_slider():
         return
 
     nom        = sim.nominal
-    launch_utc = st.session_state["ms_launch_utc"]
+    launch_utc = st.session_state.get("ms_launch_utc", _launch_utc_input)
     t_max_act  = int(nom[-1].t_met_s)
     t_max_cfg  = int(st.session_state.get("ms_tmax", t_max_act))
     rad        = st.session_state.get("ms_radius", float(radius_km))
@@ -2645,6 +2662,12 @@ def _render_mission_slider():
 
     # ── Time slider (full-width) ─────────────────────────────────────────────
     st.markdown("---")
+    _veh_label = st.session_state.get("ms_vehicle", "火箭")
+    _lu_str    = launch_utc.strftime("%Y-%m-%d %H:%M UTC")
+    st.caption(
+        f"**{_veh_label}** · 发射时刻 **{_lu_str}** · "
+        "碎片/卫星位置按 UTC 时间实时传播，拖动滑块即可查看不同飞行阶段的近场态势。"
+    )
     t_slider = st.slider(
         "⏱ 飞行时刻  T+",
         min_value=0, max_value=t_max_cfg, value=0,

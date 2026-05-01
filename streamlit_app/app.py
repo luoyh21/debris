@@ -100,23 +100,35 @@ def get_db_session_factory():
 def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
     """Read-only SQL query with a 60-second result cache.
 
-    Results are cached by (sql, params) key for 60 s so that repeated
-    page reruns (e.g. sidebar navigation, 30-s fragment fire) do not hit
-    the database unnecessarily.  Pass params=None (default) for static
-    queries; pass a plain dict for parametrised ones.
+    Uses session_scope() from database.db which has automatic pool_pre_ping,
+    pool_recycle, and up-to-3-retry logic on OperationalError — this prevents
+    long-running Streamlit sessions from dying on stale TCP connections.
+    Falls back to a direct session (legacy path) if the import fails.
     """
-    factory = get_db_session_factory()
-    if factory is None:
-        return pd.DataFrame()
-    sess = factory()
     try:
-        result = sess.execute(text(sql), params or {})
-        return pd.DataFrame(result.fetchall(), columns=result.keys())
+        from database.db import session_scope
+        with session_scope() as sess:
+            result = sess.execute(text(sql), params or {})
+            rows = result.fetchall()
+            cols = list(result.keys())
+        return pd.DataFrame(rows, columns=cols)
+    except ImportError:
+        # Fallback: direct session (no retry)
+        factory = get_db_session_factory()
+        if factory is None:
+            return pd.DataFrame()
+        sess = factory()
+        try:
+            result = sess.execute(text(sql), params or {})
+            return pd.DataFrame(result.fetchall(), columns=result.keys())
+        except Exception as exc:
+            st.error(f"数据库错误：{exc}")
+            return pd.DataFrame()
+        finally:
+            sess.close()
     except Exception as exc:
         st.error(f"数据库错误：{exc}")
         return pd.DataFrame()
-    finally:
-        sess.close()
 
 
 
@@ -536,6 +548,30 @@ with st.sidebar:
 # ------------------------------------------------------------------
 if page == "overview":
     st.markdown(title_row("overview", "空间环境概览"), unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;
+                    padding:18px 22px;margin-bottom:18px;color:#1e293b">
+          <div style="font-size:1.05em;font-weight:600;margin-bottom:8px">
+            关于本系统
+          </div>
+          <p style="margin:0 0 10px 0;line-height:1.75">
+            本系统是一套面向<strong>航天发射任务规划人员</strong>和<strong>空间碎片研究人员</strong>的
+            <strong>全链路空间态势感知平台</strong>。从数据采集、轨道预报，到碰撞风险评估和发射窗口优化，
+            提供端到端的决策支持。
+          </p>
+          <p style="margin:0;line-height:1.75">
+            系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong>
+            五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，
+            并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库
+            与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；
+            同时提供 <strong>8 个交互式功能页面</strong>和 <strong>6 个 REST API 接口</strong>。
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     def _overview_card(col, label: str, value, sub: str = "") -> None:
         """Render a metric card via HTML so large numbers never get truncated."""
