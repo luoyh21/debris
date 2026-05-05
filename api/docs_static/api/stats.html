@@ -67,7 +67,7 @@
   <span class="path">/api/v1/stats</span>
 </div>
 
-<p><span class="tag tag-scene">适用场景</span> 快速获取系统数据库的概况信息——目标总数、各类型分布、GP 元素和轨迹段的入库数量，以及多源融合视图 <code>v_unified_objects</code> 和各个外部 / 专题数据源（GCAT / UNOOSA / UCS / ESA DISCOS / <strong>Asterank</strong>）的入库条数。适用于健康检查、监控面板集成或数据摄入状态确认。</p>
+<p><span class="tag tag-scene">适用场景</span> 快速获取系统数据库的概况信息——目标总数、各类型分布、GP 元素和轨迹段的入库数量，以及多源融合视图 <code>v_unified_objects</code> 和各个外部 / 专题数据源（GCAT / UNOOSA / UCS / ESA DISCOS / <strong>Asterank</strong> / <strong>NASA TechPort</strong>）的入库条数。适用于健康检查、监控面板集成或数据摄入状态确认。</p>
 
 <h2>请求参数</h2>
 <p>此接口无需任何参数，直接发送 GET 请求即可。</p>
@@ -94,6 +94,7 @@
   <tr><td><code>external_sources.gcat_onorbit_snapshot</code></td><td>int</td><td>GCAT 当前在轨快照 (<code>external_onorbit_snapshot</code>)</td></tr>
   <tr><td><code>external_sources.unoosa</code></td><td>int</td><td>UNOOSA 年度发射统计 (<code>external_unoosa_launches</code>)</td></tr>
   <tr><td><code>external_sources.asterank</code></td><td>int</td><td><strong>Asterank 小行星 / NEO 专题库</strong> (<code>external_asterank</code>) — 与地球在轨目标独立</td></tr>
+  <tr><td><code>external_sources.techport</code></td><td>int</td><td><strong>NASA TechPort 航天技术项目组合</strong> (<code>external_techport</code>) — 含 NASA 资助 / 跟踪的技术项目，TRL 1–9，约 20,000 条</td></tr>
 </table>
 
 <h2>curl 示例</h2>
@@ -120,7 +121,8 @@
     "gcat_country_yearly_payload": 672,
     "gcat_onorbit_snapshot": 44,
     "unoosa": 1274,
-    "asterank": 5000
+    "asterank": 5000,
+    "techport": 20239
   }
 }</code></pre>
 
@@ -136,6 +138,7 @@
     <tr><td><code>by_type.DEBRIS</code></td><td>通常占总数 &gt; 40%</td><td>碎片是最大的目标类别</td></tr>
     <tr><td><code>unified_total</code></td><td>应 ≥ <code>catalog_total</code></td><td>若为 0，通常是 <code>v_unified_objects</code> 物化视图未创建，运行 <code>python run.py refresh-views</code> 即可</td></tr>
     <tr><td><code>external_sources.asterank</code></td><td>数千条（随 <code>--limit</code> 而定）</td><td>若为 0 说明尚未运行 <code>python scripts/ingest_asterank.py</code></td></tr>
+    <tr><td><code>external_sources.techport</code></td><td>~20,000（随 NASA TechPort 当前公开项目数）</td><td>若为 0 说明尚未运行 <code>python scripts/ingest_techport.py</code>；若数量明显偏低可能是被 429 限流或网络中断，重跑会断点续传</td></tr>
   </table>
 </div>
 

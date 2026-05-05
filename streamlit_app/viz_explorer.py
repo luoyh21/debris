@@ -281,7 +281,9 @@ def _gridlines_3d(fig: go.Figure, r: float = None, color: str = "rgba(60,140,200
                   width: float = 0.8):
     """Add latitude / longitude grid lines as Scatter3d traces on a sphere."""
     if r is None:
-        r = R_EARTH + 2
+        # Lift gridlines clearly above the textured surface so they don't
+        # z-fight or 'bleed through' from the back side of the globe.
+        r = R_EARTH + 30
     n = 120
 
     # Longitude lines every 30°
@@ -368,14 +370,58 @@ def _get_coastlines() -> list:
     return _COASTLINE_POINTS
 
 
+def _densify_great_circle(lons: np.ndarray, lats: np.ndarray,
+                          steps_per_seg: int = 12) -> tuple[np.ndarray, np.ndarray]:
+    """Subdivide a polyline along great-circle arcs.
+
+    Without this, two adjacent control points on the simplified continent
+    polygons are connected by a *3D chord* (a straight line in ECEF), which
+    sinks below the sphere surface for long segments and visually appears
+    as awkward 'horizontal lines' cutting through the globe.
+    """
+    if len(lons) < 2:
+        return np.asarray(lons, float), np.asarray(lats, float)
+    out_lo, out_la = [float(lons[0])], [float(lats[0])]
+    for i in range(1, len(lons)):
+        lo1, la1 = float(lons[i-1]), float(lats[i-1])
+        lo2, la2 = float(lons[i]),   float(lats[i])
+        # Convert endpoints to unit vectors on the sphere
+        p1 = np.array([
+            np.cos(np.radians(la1)) * np.cos(np.radians(lo1)),
+            np.cos(np.radians(la1)) * np.sin(np.radians(lo1)),
+            np.sin(np.radians(la1)),
+        ])
+        p2 = np.array([
+            np.cos(np.radians(la2)) * np.cos(np.radians(lo2)),
+            np.cos(np.radians(la2)) * np.sin(np.radians(lo2)),
+            np.sin(np.radians(la2)),
+        ])
+        dot = float(np.clip(np.dot(p1, p2), -1.0, 1.0))
+        omega = np.arccos(dot)
+        if omega < 1e-6:
+            out_lo.append(lo2); out_la.append(la2); continue
+        sin_o = np.sin(omega)
+        for k in range(1, steps_per_seg + 1):
+            t = k / steps_per_seg
+            a = np.sin((1 - t) * omega) / sin_o
+            b = np.sin(t * omega) / sin_o
+            p = a * p1 + b * p2
+            out_lo.append(float(np.degrees(np.arctan2(p[1], p[0]))))
+            out_la.append(float(np.degrees(np.arcsin(np.clip(p[2], -1, 1)))))
+    return np.asarray(out_lo, float), np.asarray(out_la, float)
+
+
 def _add_coastlines_3d(fig: go.Figure, r: float = None,
                        color: str = "rgba(80,200,140,0.55)", width: float = 1.5):
     """Render simplified coastline outlines on the sphere."""
     if r is None:
-        r = R_EARTH + 5
+        # Lift slightly off the surface so chords don't z-fight or sink
+        # through the textured Earth surface.
+        r = R_EARTH + 30
     for lons, lats in _get_coastlines():
-        alt = np.zeros(len(lons)) + (r - R_EARTH)
-        x, y, z = lla_to_ecef(lats, lons, alt)
+        d_lons, d_lats = _densify_great_circle(lons, lats, steps_per_seg=12)
+        alt = np.full(len(d_lons), r - R_EARTH)
+        x, y, z = lla_to_ecef(d_lats, d_lons, alt)
         fig.add_trace(go.Scatter3d(
             x=list(x), y=list(y), z=list(z),
             mode="lines", line=dict(color=color, width=width),
@@ -670,8 +716,14 @@ def _add_earth_grid_only(fig: go.Figure, n: int = 80):
 
 
 def _add_earth(fig: go.Figure, n: int = 110, opacity: float = 1.0,
-               show_grid: bool = True, show_coastlines: bool = True):
-    """Add solid Earth sphere with land/ocean coloring, gridlines, and coastlines."""
+               show_grid: bool = True, show_coastlines: bool = False):
+    """Add solid Earth sphere with land/ocean coloring and gridlines.
+
+    Coastlines are off by default — the surface already shows the land/ocean
+    boundary via its texture; the simplified hand-drawn polylines on top
+    add visual clutter (3D chords sinking through the globe) without
+    contributing useful information.
+    """
     x_e, y_e, z_e = _earth_mesh(n)
     topo = _build_earth_texture(n)
 
@@ -736,15 +788,9 @@ def _add_earth_local(fig: go.Figure, rx: float, ry: float, rz: float, n: int = 5
             mode="lines", line=dict(color="rgba(60,140,200,0.18)", width=0.6),
             hoverinfo="skip", showlegend=False,
         ))
-    for clons, clats in _get_coastlines():
-        alt = np.full(len(clons), 5.0)
-        cx, cy, cz = lla_to_ecef(clats, clons, alt)
-        fig.add_trace(go.Scatter3d(
-            x=list(np.asarray(cx) - rx), y=list(np.asarray(cy) - ry),
-            z=list(np.asarray(cz) - rz),
-            mode="lines", line=dict(color="rgba(80,200,140,0.45)", width=1.2),
-            hoverinfo="skip", showlegend=False,
-        ))
+    # Coastlines intentionally omitted — the textured Earth surface already
+    # encodes land/ocean colours; drawing simplified outlines on top creates
+    # visible 3D chords cutting through the globe.
 
 
 def _add_altitude_shell(fig: go.Figure, alt_km: float, color: str, opacity: float = 0.08):
@@ -1556,8 +1602,22 @@ _RT_JS_TEMPLATE = """
   var F={frames_json};
   var N=F.length,stepMs={step_ms},trIdx={trace_idx};
   if(N<2)return;
+  // Pause animation while the user interacts (drag-rotate / wheel-zoom) so
+  // Plotly's gesture handler is not fighting our restyle on every frame.
+  var paused=false, resumeT=null;
+  function pauseFor(ms){{
+    paused=true;
+    if(resumeT) clearTimeout(resumeT);
+    resumeT=setTimeout(function(){{paused=false;resumeT=null;}}, ms);
+  }}
+  el.addEventListener('mousedown',  function(){{pauseFor(800);}});
+  el.addEventListener('mousemove',  function(e){{if(e.buttons) pauseFor(800);}});
+  el.addEventListener('touchstart', function(){{pauseFor(800);}}, {{passive:true}});
+  el.addEventListener('touchmove',  function(){{pauseFor(800);}}, {{passive:true}});
+  el.addEventListener('wheel',      function(){{pauseFor(600);}}, {{passive:true}});
   var t0=performance.now(),last=0;
   function tick(now){{
+    if(paused){{requestAnimationFrame(tick);return;}}
     if(now-last<500){{requestAnimationFrame(tick);return;}}
     last=now;
     var elapsed=now-t0,total=N*stepMs;
@@ -1602,6 +1662,19 @@ _RT_JS_TEMPLATE_ORTHO_TRAILS = string.Template("""
   var TG=$trail_groups_json;        // [{trIdx, indices:[...]}]
   var N=F.length, stepMs=$step_ms, mkIdx=0;
   if(N<2) return;
+  // Pause animation while the user is rotating / zooming, otherwise the
+  // restyle calls fight Plotly's gesture handler -> jumpy drag.
+  var paused=false, resumeT=null;
+  function pauseFor(ms){
+    paused=true;
+    if(resumeT) clearTimeout(resumeT);
+    resumeT=setTimeout(function(){paused=false;resumeT=null;}, ms);
+  }
+  el.addEventListener('mousedown',  function(){pauseFor(800);});
+  el.addEventListener('mousemove',  function(e){if(e.buttons) pauseFor(800);});
+  el.addEventListener('touchstart', function(){pauseFor(800);}, {passive:true});
+  el.addEventListener('touchmove',  function(){pauseFor(800);}, {passive:true});
+  el.addEventListener('wheel',      function(){pauseFor(600);}, {passive:true});
 
   function rebuildTrails(iEnd){
     for(var gi=0; gi<TG.length; gi++){
@@ -1624,6 +1697,7 @@ _RT_JS_TEMPLATE_ORTHO_TRAILS = string.Template("""
 
   var t0=performance.now(), last=0, lastI=-1;
   function tick(now){
+    if(paused){requestAnimationFrame(tick); return;}
     if(now-last<500){requestAnimationFrame(tick); return;}
     last=now;
     var elapsed=now-t0, total=N*stepMs;
@@ -1893,14 +1967,19 @@ def _render_global_view():
             _gv_alt_min = float(alt_range[0])
             _gv_alt_max = float(alt_range[1])
             _gv_obj_type = obj_type
-            _gv_limit = min(n_limit, 4000)
+            # Ortho writes the entire animation as inline HTML inside an
+            # iframe; with the full Space-Track catalogue (~30 k objects)
+            # 4000-marker × 60-frame payloads grew past 3 MB and browsers
+            # were rendering blank.  Cap to ≤1800 markers × 36 frames so
+            # the inline payload stays around ~700 KB.
+            _gv_limit = min(n_limit, 1800)
 
             @st.fragment(run_every=timedelta(seconds=600))
             def _gv_animated_ortho():
                 t_now = datetime.now(timezone.utc) + timedelta(hours=int(hour_offset))
                 rd = _compute_realtime_frames(
                     t_base_iso=t_now.isoformat(),
-                    n_frames=60, step_s=10.0,
+                    n_frames=36, step_s=10.0,
                     alt_min=_gv_alt_min, alt_max=_gv_alt_max,
                     obj_type=_gv_obj_type, limit=_gv_limit,
                 )
@@ -2494,19 +2573,36 @@ def _render_mission_slider():
                                     max_value=2000, step=50, key="ms_rad")
         auto_stop = c8.checkbox("自动到轨停止",  value=True, key="ms_auto_stop",
                                 help="检测到入轨（近地点 > 150 km）后立即停止仿真，避免多余的轨道圈。")
+        # ── Launch time (UTC) ────────────────────────────────────────────
+        _default_date = (datetime.now(timezone.utc) + timedelta(days=1)).date()
+        cd1, cd2, cd3 = st.columns([2, 1, 1])
+        launch_date = cd1.date_input(
+            "发射日期 (UTC)", value=_default_date, key="ms_launch_date",
+            help="碎片位置将按此日期 + 时刻（UTC）传播，反映实际在轨目标的分布。",
+        )
+        launch_hour = cd2.number_input(
+            "发射时 (UTC)", value=6, min_value=0, max_value=23, step=1, key="ms_launch_h",
+        )
+        launch_minute = cd3.number_input(
+            "发射分 (UTC)", value=0, min_value=0, max_value=59, step=1, key="ms_launch_m",
+        )
         run_btn   = st.button("运行仿真", type="primary", key="ms_run",
                               use_container_width=True)
 
+    # ── Build launch_utc from user inputs (outside expander so always available)
+    _ld = st.session_state.get("ms_launch_date", _default_date)
+    _lh = int(st.session_state.get("ms_launch_h", 6))
+    _lm = int(st.session_state.get("ms_launch_m", 0))
+    _launch_utc_input = datetime(
+        _ld.year, _ld.month, _ld.day, _lh, _lm, 0, tzinfo=timezone.utc
+    )
+
     # ── Run simulation ──────────────────────────────────────────────────────
     if run_btn or "ms_result" not in st.session_state:
-        with st.spinner("运行 6-DOF 仿真（CZ-5B，请稍候）…"):
+        with st.spinner(f"运行 6-DOF 仿真（{vehicle}，请稍候）…"):
             try:
                 from trajectory.rocketpy_sim import SimConfig, simulate
-                launch_utc = (
-                    datetime.now(timezone.utc)
-                    .replace(hour=6, minute=0, second=0, microsecond=0)
-                    + timedelta(days=1)
-                )
+                launch_utc = _launch_utc_input
                 cfg = SimConfig(
                     vehicle_name=vehicle,
                     launch_lat_deg=float(lat_l),
@@ -2552,7 +2648,7 @@ def _render_mission_slider():
         return
 
     nom        = sim.nominal
-    launch_utc = st.session_state["ms_launch_utc"]
+    launch_utc = st.session_state.get("ms_launch_utc", _launch_utc_input)
     t_max_act  = int(nom[-1].t_met_s)
     t_max_cfg  = int(st.session_state.get("ms_tmax", t_max_act))
     rad        = st.session_state.get("ms_radius", float(radius_km))
@@ -2566,6 +2662,12 @@ def _render_mission_slider():
 
     # ── Time slider (full-width) ─────────────────────────────────────────────
     st.markdown("---")
+    _veh_label = st.session_state.get("ms_vehicle", "火箭")
+    _lu_str    = launch_utc.strftime("%Y-%m-%d %H:%M UTC")
+    st.caption(
+        f"**{_veh_label}** · 发射时刻 **{_lu_str}** · "
+        "碎片/卫星位置按 UTC 时间实时传播，拖动滑块即可查看不同飞行阶段的近场态势。"
+    )
     t_slider = st.slider(
         "⏱ 飞行时刻  T+",
         min_value=0, max_value=t_max_cfg, value=0,
@@ -2844,19 +2946,16 @@ def _render_launch_trend():
         fig_u = make_ucs_users_fig(ucs)
         st.plotly_chart(fig_u, use_container_width=True)
 
-        # Top countries as pie chart — merge <2% into "其他"
+        # Top-7 countries as pie chart, everything else collapsed into "其他"
         _all_counts = ucs["country"].value_counts()
-        _grand = int(_all_counts.sum())
-        _pie_labels, _pie_values, _other_sum = [], [], 0
-        for lbl, cnt in _all_counts.items():
-            if int(cnt) / _grand >= 0.02:
-                _pie_labels.append(str(lbl))
-                _pie_values.append(int(cnt))
-            else:
-                _other_sum += int(cnt)
-        if _other_sum > 0:
+        _top_n = 7
+        _top_part = _all_counts.head(_top_n)
+        _rest_part = _all_counts.iloc[_top_n:]
+        _pie_labels = [str(l) for l in _top_part.index]
+        _pie_values = [int(v) for v in _top_part.values]
+        if not _rest_part.empty:
             _pie_labels.append("其他")
-            _pie_values.append(_other_sum)
+            _pie_values.append(int(_rest_part.sum()))
         st.markdown("**主要运营国/地区卫星数量**")
         _ctotal = sum(_pie_values)
         _cpos = ["outside" if v / _ctotal < 0.05 else "inside" for v in _pie_values]

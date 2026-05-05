@@ -62,10 +62,11 @@
 
 <h1>目标目录</h1>
 <p><span class="tag tag-scene">场景</span> 查找特定的空间目标，或按条件批量筛选感兴趣的目标群体。</p>
-<p>目标目录是系统的核心数据浏览界面，分为两个标签页：</p>
+<p>目标目录是系统的核心数据浏览界面，分为三个标签页：</p>
 <ul>
   <li><strong>地球在轨目标（多源融合）</strong>：融合 Space-Track、UCS、ESA DISCOS 三大数据源，按 NORAD ID 去重后统一展示，支持多维度筛选和关键词搜索，最多一次显示 2,000 条记录。</li>
   <li><strong>小行星 / NEO (Asterank)</strong>：独立的小行星 / 近地天体（NEO）专题库，字段包含开普勒轨道根数（a / e / i / MOID）、光谱类型、直径、Δv 与经济估值（price / profit），可按轨道族、光谱类型、Δv 上限、直径下限、最小利润筛选。</li>
+  <li><strong>NASA 技术项目 (TechPort)</strong>：独立的 NASA 资助 / 跟踪的航天技术项目组合（约 20,000 项目），字段包含项目标题、详细描述、Technology Readiness Level（TRL 起 / 当前 / 终）、责任组织（含国家与州）、NASA 技术分类（TX01–TX17）、起止日期与目标方向（Earth / Moon / Mars …）。可按关键词、状态、TRL、机构类型、国家、技术分类前缀、年份等筛选；选中行可展开查看 description 与 benefits 全文。</li>
 </ul>
 
 <h2>使用步骤</h2>
@@ -121,6 +122,19 @@
   <tr><td><strong>最小估值 profit ($)</strong></td><td>数值（支持科学计数）</td><td>仅保留 Asterank 经济估值 profit 高于阈值的天体</td></tr>
 </table>
 
+<h3>NASA 技术项目（TechPort）</h3>
+<p>TechPort 标签页读取独立的 <code>external_techport</code> 表，提供以下筛选条件：</p>
+<table>
+  <tr><th>筛选项</th><th>选项</th><th>说明</th></tr>
+  <tr><td><strong>名称 / 描述关键词</strong></td><td>自由输入</td><td>同时模糊匹配 <code>title</code> 与 <code>description</code></td></tr>
+  <tr><td><strong>项目状态</strong></td><td>全部 / Active / Completed / Pending / Cancelled</td><td>对应 TechPort 字段 <code>status</code></td></tr>
+  <tr><td><strong>责任组织类型</strong></td><td>全部 / Academia / Industry / NASA_Center / NASA_Research_Center / Other_Government_Agency</td><td>对应 <code>lead_org_type</code></td></tr>
+  <tr><td><strong>国家代码</strong></td><td>自由输入（自动转大写）</td><td>对应 <code>lead_org_country</code>，如 <code>US</code>、<code>CA</code>、<code>JPN</code></td></tr>
+  <tr><td><strong>技术分类 code</strong></td><td>自由输入</td><td>NASA Taxonomy code，如 <code>TX06</code>、<code>TX17.1</code>；前缀模糊匹配</td></tr>
+  <tr><td><strong>TRL 当前下限</strong></td><td>0–9</td><td><code>0</code> 表示不限制；TRL 越高表示越接近实用</td></tr>
+  <tr><td><strong>起始年份 ≥ / 结束年份 ≤</strong></td><td>数值</td><td>按 <code>start_year</code> / <code>end_year</code> 区间筛选；<code>0</code> 表示不限制</td></tr>
+</table>
+
 <h2 id="detail">数据列说明</h2>
 
 <h3>地球在轨目标（多源融合）</h3>
@@ -166,6 +180,28 @@
   <tr><td><strong>估值 price ($)</strong></td><td>Asterank</td><td>基于光谱和直径估算的资源总价值</td></tr>
   <tr><td><strong>利润 profit ($)</strong></td><td>Asterank</td><td>扣除到达与返回成本后的净利润估值（综合考虑 Δv）</td></tr>
 </table>
+
+<h3>NASA 技术项目（TechPort）</h3>
+<table>
+  <tr><th>列名</th><th>数据来源</th><th>含义</th></tr>
+  <tr><td><strong>项目 ID</strong></td><td>TechPort</td><td>TechPort 项目唯一标识 <code>projectId</code>，可拼接 <code>https://techport.nasa.gov/projects/{id}</code> 打开 Web 页</td></tr>
+  <tr><td><strong>项目名称</strong></td><td>TechPort</td><td>项目正式标题（<code>title</code>）</td></tr>
+  <tr><td><strong>状态</strong></td><td>TechPort</td><td>Active / Completed / Pending / Cancelled（<code>status</code>）</td></tr>
+  <tr><td><strong>发布状态</strong></td><td>TechPort</td><td><code>releaseStatus</code>：Released / Draft 等</td></tr>
+  <tr><td><strong>开始 / 结束</strong></td><td>TechPort</td><td>项目实际起止日期（已转为 SQL <code>date</code>）</td></tr>
+  <tr><td><strong>TRL 起 / 当前 / 终</strong></td><td>TechPort</td><td>Technology Readiness Level（NASA 1–9 量表）：基础研究 / 概念验证 / 实验环境验证 / 真实环境运行</td></tr>
+  <tr><td><strong>项目所属计划</strong></td><td>TechPort</td><td>所属 NASA 计划 / 项目集的缩写（<code>program_acronym</code>），例如 <code>STRG</code>、<code>SBIR</code></td></tr>
+  <tr><td><strong>责任机构</strong></td><td>TechPort</td><td>主导该项目的组织缩写（<code>lead_org_acronym</code>），例如 <code>JPL</code>、<code>ASU</code></td></tr>
+  <tr><td><strong>机构类型</strong></td><td>TechPort</td><td><code>lead_org_type</code>：Academia / Industry / NASA_Center 等</td></tr>
+  <tr><td><strong>国家 / 州</strong></td><td>TechPort</td><td>责任机构的国家与州缩写</td></tr>
+  <tr><td><strong>技术分类 code / 标题</strong></td><td>TechPort（NASA Taxonomy）</td><td>NASA 技术分类编号与标题，例如 <code>TX06.1.2 — Water Recovery and Management</code></td></tr>
+  <tr><td><strong>目标方向</strong></td><td>TechPort</td><td>目标天体 / 任务方向：Earth、Moon、Mars、Outer Planets 等（逗号分隔）</td></tr>
+  <tr><td><strong>浏览数</strong></td><td>TechPort</td><td>该项目在 TechPort 网站的累计浏览次数（<code>view_count</code>）</td></tr>
+</table>
+
+<div class="info-box">
+  💡 <strong>查看项目详情：</strong>选定一个项目 ID 后，「TechPort」标签页下方会自动展开 <code>description</code>（项目描述）与 <code>benefits</code>（预期效益）的完整正文，HTML 已被清洗为纯文本。
+</div>
 
 <div class="info-box">
   💡 <strong>提示：</strong>结果表格最多显示 2,000 条记录。如果需要处理更大量级的数据，建议使用筛选条件缩小范围，或通过 <a href="/docs/api">API 接口</a> 编程获取数据。

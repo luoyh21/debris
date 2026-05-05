@@ -100,37 +100,57 @@ def get_db_session_factory():
 def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
     """Read-only SQL query with a 60-second result cache.
 
-    Results are cached by (sql, params) key for 60 s so that repeated
-    page reruns (e.g. sidebar navigation, 30-s fragment fire) do not hit
-    the database unnecessarily.  Pass params=None (default) for static
-    queries; pass a plain dict for parametrised ones.
+    Uses session_scope() from database.db which has automatic pool_pre_ping,
+    pool_recycle, and up-to-3-retry logic on OperationalError — this prevents
+    long-running Streamlit sessions from dying on stale TCP connections.
+    Falls back to a direct session (legacy path) if the import fails.
     """
-    factory = get_db_session_factory()
-    if factory is None:
-        return pd.DataFrame()
-    sess = factory()
     try:
-        result = sess.execute(text(sql), params or {})
-        return pd.DataFrame(result.fetchall(), columns=result.keys())
+        from database.db import session_scope
+        with session_scope() as sess:
+            result = sess.execute(text(sql), params or {})
+            rows = result.fetchall()
+            cols = list(result.keys())
+        return pd.DataFrame(rows, columns=cols)
+    except ImportError:
+        # Fallback: direct session (no retry)
+        factory = get_db_session_factory()
+        if factory is None:
+            return pd.DataFrame()
+        sess = factory()
+        try:
+            result = sess.execute(text(sql), params or {})
+            return pd.DataFrame(result.fetchall(), columns=result.keys())
+        except Exception as exc:
+            st.error(f"数据库错误：{exc}")
+            return pd.DataFrame()
+        finally:
+            sess.close()
     except Exception as exc:
         st.error(f"数据库错误：{exc}")
         return pd.DataFrame()
-    finally:
-        sess.close()
 
 
 
-def _bar_chart_zero(data: "pd.Series | pd.DataFrame") -> None:
-    """st.bar_chart replacement that forces the y-axis to start at zero."""
+def _bar_chart_zero(data: "pd.Series | pd.DataFrame",
+                    x_label_angle: int | None = None) -> None:
+    """st.bar_chart replacement that forces the y-axis to start at zero.
+
+    ``x_label_angle`` overrides the X-axis tick label rotation in degrees
+    (e.g. ``0`` for horizontal labels).  Default ``None`` keeps Altair's
+    automatic behaviour (long labels rotate to vertical).
+    """
     import altair as alt
     df = data.reset_index()
     cols = df.columns.tolist()
     x_col, y_col = cols[0], cols[1]
+    x_axis = (alt.Axis(labelAngle=int(x_label_angle))
+              if x_label_angle is not None else alt.Undefined)
     chart = (
         alt.Chart(df)
         .mark_bar()
         .encode(
-            x=alt.X(x_col, sort=None, title=x_col),
+            x=alt.X(x_col, sort=None, title=x_col, axis=x_axis),
             y=alt.Y(y_col, scale=alt.Scale(zero=True), title=y_col),
         )
         .properties(height=300, width="container")
@@ -437,7 +457,7 @@ with _docs_bt:
     )
 st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank")
+st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank · NASA TechPort")
 
 # Track current page in session_state so sidebar fragments can read it.
 # Also clear LCOLA done notification when user visits the LCOLA page.
@@ -528,6 +548,30 @@ with st.sidebar:
 # ------------------------------------------------------------------
 if page == "overview":
     st.markdown(title_row("overview", "空间环境概览"), unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;
+                    padding:18px 22px;margin-bottom:18px;color:#1e293b">
+          <div style="font-size:1.05em;font-weight:600;margin-bottom:8px">
+            关于本系统
+          </div>
+          <p style="margin:0 0 10px 0;line-height:1.75">
+            本系统是一套面向<strong>航天发射任务规划人员</strong>和<strong>空间碎片研究人员</strong>的
+            <strong>全链路空间态势感知平台</strong>。从数据采集、轨道预报，到碰撞风险评估和发射窗口优化，
+            提供端到端的决策支持。
+          </p>
+          <p style="margin:0;line-height:1.75">
+            系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong>
+            五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，
+            并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库
+            与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；
+            同时提供 <strong>8 个交互式功能页面</strong>和 <strong>6 个 REST API 接口</strong>。
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     def _overview_card(col, label: str, value, sub: str = "") -> None:
         """Render a metric card via HTML so large numbers never get truncated."""
@@ -711,19 +755,44 @@ if page == "overview":
 
     st.markdown(section_title("download", "多源数据摄入状态"), unsafe_allow_html=True)
 
-    # Main breakdown: by source × object type from unified view
+    # Main breakdown: per *source-table* row counts × inferred object type.
+    # We deliberately do NOT pull this from v_unified_objects because that
+    # view dedupes by NORAD ID — an ESA / UCS row that is also present in
+    # Space-Track gets *folded* into the Space-Track row via LEFT JOIN
+    # (with has_esa / has_ucs flags), so the unified view shows only the
+    # *exclusive* portion of each external source.  The摄入状态 table is
+    # supposed to reflect "how many rows did each source contribute", so
+    # we count the underlying source tables directly.
     _src_type_df = run_query("""
-        SELECT
-            primary_source AS 数据源,
-            object_type    AS 目标类型,
-            COUNT(*)       AS 数量
-        FROM v_unified_objects
-        GROUP BY 1, 2
+        SELECT 'Space-Track' AS 数据源, COALESCE(object_type,'UNKNOWN') AS 目标类型,
+               COUNT(*) AS 数量
+        FROM catalog_objects GROUP BY 1, 2
+        UNION ALL
+        SELECT 'UCS', 'PAYLOAD', COUNT(*)
+        FROM external_ucs_satellites
+        UNION ALL
+        SELECT 'ESA-DISCOS',
+            CASE
+                WHEN "objectClass" IN ('Payload','Payload Mission Related Object')
+                     THEN 'PAYLOAD'
+                WHEN "objectClass" = 'Rocket Body'
+                     THEN 'ROCKET BODY'
+                WHEN "objectClass" IN ('Payload Fragmentation Debris',
+                     'Rocket Fragmentation Debris','Payload Debris','Rocket Debris',
+                     'Rocket Mission Related Object','Other Debris')
+                     THEN 'DEBRIS'
+                ELSE 'UNKNOWN'
+            END,
+            COUNT(*)
+        FROM external_esa_discos GROUP BY 2
         ORDER BY 1, 3 DESC
     """)
     _src_total_df = run_query("""
-        SELECT primary_source AS 数据源, COUNT(*) AS 合计
-        FROM v_unified_objects GROUP BY 1 ORDER BY 2 DESC
+        SELECT '数据源' AS 数据源, 0 AS 合计 WHERE FALSE
+        UNION ALL SELECT 'Space-Track', COUNT(*) FROM catalog_objects
+        UNION ALL SELECT 'UCS', COUNT(*) FROM external_ucs_satellites
+        UNION ALL SELECT 'ESA-DISCOS', COUNT(*) FROM external_esa_discos
+        ORDER BY 2 DESC
     """)
 
     if not _src_type_df.empty:
@@ -756,9 +825,10 @@ if page == "overview":
         st.caption(f"融合 **{_n_src}** 个数据源 · 去重后共 **{_n:,}** 个空间目标")
 
     # Supplementary: GCAT launch history + UNOOSA aggregate stats + Asterank
-    # (asteroids / NEO).  These are NOT Earth-orbiting satellites/debris, so
-    # they live in their own tables rather than v_unified_objects.
-    with st.expander("补充与专题数据源（历史发射统计 · 小行星）", expanded=False):
+    # (asteroids / NEO) + NASA TechPort (technology project portfolio). These
+    # are NOT Earth-orbiting satellites/debris, so they live in their own
+    # tables rather than v_unified_objects.
+    with st.expander("补充与专题数据源（发射统计 · 小行星 · NASA 技术项目）", expanded=False):
         _aux_rows = []
         _aux_tables = [
             ("external_yearly_launches",        "GCAT 年度发射统计"),
@@ -766,6 +836,7 @@ if page == "overview":
             ("external_country_yearly_payload", "GCAT 国别载荷统计"),
             ("external_unoosa_launches",        "UNOOSA 年度发射统计"),
             ("external_asterank",               "Asterank 小行星 / 近地天体目录"),
+            ("external_techport",               "NASA TechPort 航天技术项目组合"),
         ]
         for tbl, label in _aux_tables:
             try:
@@ -780,8 +851,10 @@ if page == "overview":
             st.dataframe(_aux_df, use_container_width=True, hide_index=True)
             st.caption(
                 "GCAT / UNOOSA 为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析；"
-                "Asterank 为独立的小行星/近地天体专题库（来自 http://www.asterank.com），"
-                "与地球在轨目标目录相互独立，可在目标目录页的「专题：小行星 (Asterank)」标签查看。"
+                "Asterank 为独立的小行星/近地天体专题库（http://www.asterank.com），"
+                "TechPort 为 NASA 航天技术项目组合（https://techport.nasa.gov），"
+                "三者均与地球在轨目标目录相互独立，分别可在目标目录页的"
+                "「小行星 / NEO (Asterank)」与「NASA 技术项目 (TechPort)」标签查看。"
             )
 
 # ------------------------------------------------------------------
@@ -797,10 +870,11 @@ elif page == "viz":
 elif page == "catalog":
     st.markdown(title_row("catalog", "空间目标统一目录"), unsafe_allow_html=True)
     st.caption("融合 Space-Track、UCS Satellite Database、ESA DISCOS 三大数据源，"
-               "按 NORAD ID 去重后统一展示；此外提供独立的 Asterank 小行星 / 近地天体专题库。")
+               "按 NORAD ID 去重后统一展示；此外提供独立的 Asterank 小行星 / 近地天体目录、"
+               "以及 NASA TechPort 航天技术项目组合（不同物理实体，分别浏览）。")
 
-    _cat_tab_earth, _cat_tab_aster = st.tabs(
-        ["地球在轨目标（多源融合）", "小行星 / NEO（Asterank）"]
+    _cat_tab_earth, _cat_tab_aster, _cat_tab_tp = st.tabs(
+        ["地球在轨目标（多源融合）", "小行星 / NEO（Asterank）", "NASA 技术项目 (TechPort)"]
     )
 
     with _cat_tab_earth:
@@ -992,6 +1066,158 @@ elif page == "catalog":
             st.write(f"**共 {len(a_df)} 条记录**（库中共 {_ast_n:,} 条；最多显示 2000 条）")
             if not a_df.empty:
                 st.dataframe(a_df, use_container_width=True, height=550)
+            else:
+                st.info("当前筛选条件下无数据。")
+
+    # ── Tab 3：NASA TechPort 航天技术项目组合 ───────────────────────────
+    with _cat_tab_tp:
+        st.caption(
+            "NASA TechPort 数据源（https://techport.nasa.gov） 维护的 NASA 资助 / 跟踪的"
+            "技术项目组合。包含项目标题、描述、TRL（Technology Readiness Level）、"
+            "起止日期、责任组织、技术分类（NASA Taxonomy）、目标方向（Earth/Moon/Mars …）等字段，"
+            "与地球在轨目标 / 小行星目录相互独立，存储于 `external_techport` 表。"
+        )
+
+        try:
+            _tp_total = run_query("SELECT COUNT(*) AS n FROM external_techport")
+            _tp_n = int(_tp_total.iloc[0]["n"]) if not _tp_total.empty else 0
+        except Exception:
+            _tp_n = 0
+            st.warning(
+                "未检测到 `external_techport` 表。请先运行："
+                "`python scripts/ingest_techport.py`（容器内："
+                "`docker compose run --rm app python scripts/ingest_techport.py`）"
+                "后刷新页面。"
+            )
+
+        if _tp_n > 0:
+            with st.expander("筛选条件", expanded=True):
+                tc1, tc2, tc3 = st.columns(3)
+                tp_kw       = tc1.text_input("名称 / 描述关键词", "", key="_tp_kw")
+                tp_status   = tc2.selectbox(
+                    "项目状态",
+                    ["全部", "Active", "Completed", "Pending", "Cancelled"],
+                    key="_tp_status",
+                )
+                tp_org_type = tc3.selectbox(
+                    "责任组织类型",
+                    ["全部", "Academia", "Industry", "NASA_Center",
+                     "NASA_Research_Center", "Other_Government_Agency"],
+                    key="_tp_org_type",
+                )
+
+                tc4, tc5, tc6 = st.columns(3)
+                tp_country = tc4.text_input("国家代码（如 US、CA、JPN）", "",
+                                            key="_tp_country")
+                tp_tx_code = tc5.text_input("技术分类 code（如 TX06、TX17）", "",
+                                            key="_tp_tx_code",
+                                            help="TX01–TX17，可只填前缀做模糊匹配")
+                tp_trl_min = tc6.number_input("TRL 当前下限（1–9）", min_value=0,
+                                              max_value=9, value=0, step=1,
+                                              key="_tp_trl_min",
+                                              help="0 表示不限制")
+
+                tc7, tc8 = st.columns(2)
+                tp_year_min = tc7.number_input("起始年份 ≥", min_value=0,
+                                               max_value=2100, value=0, step=1,
+                                               key="_tp_year_min",
+                                               help="0 表示不限制")
+                tp_year_max = tc8.number_input("结束年份 ≤", min_value=0,
+                                               max_value=2100, value=0, step=1,
+                                               key="_tp_year_max",
+                                               help="0 表示不限制")
+
+            t_where: list[str] = []
+            t_params: dict = {}
+            if tp_kw.strip():
+                t_where.append("(title ILIKE :tk OR description ILIKE :tk)")
+                t_params["tk"] = f"%{tp_kw.strip()}%"
+            if tp_status != "全部":
+                t_where.append("status = :ts")
+                t_params["ts"] = tp_status
+            if tp_org_type != "全部":
+                t_where.append("lead_org_type = :tot")
+                t_params["tot"] = tp_org_type
+            if tp_country.strip():
+                t_where.append("lead_org_country = :tc")
+                t_params["tc"] = tp_country.strip().upper()
+            if tp_tx_code.strip():
+                t_where.append("primary_tx_code ILIKE :ttc")
+                t_params["ttc"] = f"{tp_tx_code.strip()}%"
+            if tp_trl_min and tp_trl_min > 0:
+                t_where.append("trl_current >= :ttrl")
+                t_params["ttrl"] = int(tp_trl_min)
+            if tp_year_min and tp_year_min > 0:
+                t_where.append("start_year >= :tymin")
+                t_params["tymin"] = int(tp_year_min)
+            if tp_year_max and tp_year_max > 0:
+                t_where.append("end_year <= :tymax")
+                t_params["tymax"] = int(tp_year_max)
+            t_where_sql = " AND ".join(t_where) if t_where else "TRUE"
+
+            t_df = run_query(f"""
+                SELECT
+                    project_id          AS "项目 ID",
+                    title               AS "项目名称",
+                    status              AS "状态",
+                    release_status      AS "发布状态",
+                    start_date          AS "开始",
+                    end_date            AS "结束",
+                    trl_begin           AS "TRL 起",
+                    trl_current         AS "TRL 当前",
+                    trl_end             AS "TRL 终",
+                    program_acronym     AS "项目所属计划",
+                    lead_org_acronym    AS "责任机构",
+                    lead_org_type       AS "机构类型",
+                    lead_org_country    AS "国家",
+                    lead_org_state      AS "州 / 省",
+                    primary_tx_code     AS "技术分类 code",
+                    primary_tx_title    AS "技术分类",
+                    destination_types   AS "目标方向",
+                    view_count          AS "浏览数"
+                FROM external_techport
+                WHERE {t_where_sql}
+                ORDER BY (status='Active') DESC,
+                         trl_current DESC NULLS LAST,
+                         start_date DESC NULLS LAST
+                LIMIT 2000
+            """, t_params)
+
+            st.write(f"**共 {len(t_df)} 条记录**（库中共 {_tp_n:,} 条；最多显示 2000 条）")
+            if not t_df.empty:
+                st.dataframe(t_df, use_container_width=True, height=550)
+
+                # 详情面板：选一个项目展开看 description / benefits 全文
+                _ids = t_df["项目 ID"].dropna().astype(int).tolist()
+                if _ids:
+                    sel_pid = st.selectbox(
+                        "查看项目详情（description / benefits）",
+                        options=[None] + _ids,
+                        format_func=lambda v: ("（不查看）" if v is None
+                                               else f"{v} — "
+                                               + str(t_df.set_index('项目 ID').loc[v, '项目名称'])[:80]),
+                        key="_tp_detail_pid",
+                    )
+                    if sel_pid:
+                        det = run_query(
+                            "SELECT title, description, benefits, "
+                            "primary_tx_title, lead_org_name, status, start_date, end_date "
+                            "FROM external_techport WHERE project_id = :pid",
+                            {"pid": int(sel_pid)},
+                        )
+                        if not det.empty:
+                            row = det.iloc[0]
+                            st.markdown(f"### {row['title']}")
+                            st.caption(
+                                f"状态：{row['status']} ｜ 起止：{row['start_date']} → {row['end_date']} ｜ "
+                                f"责任机构：{row['lead_org_name']} ｜ 技术分类：{row['primary_tx_title']}"
+                            )
+                            if row.get("description"):
+                                st.markdown("**项目描述：**")
+                                st.write(row["description"])
+                            if row.get("benefits"):
+                                st.markdown("**预期效益：**")
+                                st.write(row["benefits"])
             else:
                 st.info("当前筛选条件下无数据。")
 
@@ -1429,6 +1655,15 @@ elif page == "ai":
         with col:
             if st.button(label, use_container_width=True, key=f"example_{i}"):
                 st.session_state["_ai_draft"] = question
+                # Streamlit caches the widget's bound value under its key
+                # forever; if we don't clear it, picking a different example
+                # will keep showing the previous question's text.  Reset both
+                # the widget state and a small "version" suffix so the
+                # text_area is fully re-instantiated on the next run.
+                st.session_state.pop("ai_draft_editor", None)
+                st.session_state["_ai_draft_ver"] = (
+                    int(st.session_state.get("_ai_draft_ver", 0)) + 1
+                )
                 st.rerun()
 
     # 处理待发送消息（来自"发送草稿"按钮）
@@ -1453,9 +1688,13 @@ elif page == "ai":
     _ai_draft = st.session_state.get("_ai_draft", "")
     if _ai_draft:
         st.caption("示例问题已填入，可在下方编辑后发送：")
+        # Append the version suffix to the key so each example click yields
+        # a *new* widget instance whose initial value is correctly applied
+        # (Streamlit otherwise re-uses the previous widget's stored value).
+        _ed_key = f"ai_draft_editor_v{int(st.session_state.get('_ai_draft_ver', 0))}"
         edited_draft = st.text_area(
             "问题内容", value=_ai_draft, height=90,
-            key="ai_draft_editor", label_visibility="collapsed",
+            key=_ed_key, label_visibility="collapsed",
         )
         # 使用 HTML 按钮行，避免 st.columns 在窄屏下换行
         st.markdown("""
@@ -1890,4 +2129,4 @@ elif page == "lcola":
             from collections import Counter
             phase_cnt = Counter(ev.phase for ev in report.top_events)
             df_ph = pd.DataFrame(list(phase_cnt.items()), columns=["阶段", "合取事件数"])
-            _bar_chart_zero(df_ph.set_index("阶段"))
+            _bar_chart_zero(df_ph.set_index("阶段"), x_label_angle=0)

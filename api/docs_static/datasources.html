@@ -61,7 +61,7 @@
 <div class="main">
 
 <h1>数据来源与覆盖范围</h1>
-<p>系统整合了六大权威空间态势感知数据源，通过统一的 NORAD 编号去重机制，构建了覆盖 <strong>60,000+</strong> 在轨目标的综合目录；此外还独立接入 <strong>Asterank</strong> 小行星 / 近地天体目录，用于太阳系尺度的专题分析。每个数据源提供不同维度的信息，相互补充，确保数据的完整性和可靠性。</p>
+<p>系统整合了五大权威空间态势感知数据源（Space-Track / UCS / ESA DISCOS / GCAT / UNOOSA），通过统一的 NORAD 编号去重机制，构建了覆盖 <strong>60,000+</strong> 在轨目标的综合目录；此外还独立接入两个专题数据源：<strong>Asterank</strong> 小行星 / 近地天体目录（用于太阳系尺度的专题分析）和 <strong>NASA TechPort</strong> 航天技术项目组合（用于追踪 NASA 资助的技术项目、TRL 演进与机构布局）。每个数据源提供不同维度的信息，相互补充，确保数据的完整性和可靠性。</p>
 
 <h2>数据源总览</h2>
 <table>
@@ -114,6 +114,13 @@
     <td>按需拉取（默认缓存）</td>
     <td>来源 JPL Small-Body Database，接近实时</td>
   </tr>
+  <tr>
+    <td><strong>NASA TechPort</strong></td>
+    <td>NASA 资助 / 跟踪的航天技术项目组合：项目标题、描述、TRL（1–9）、起止日期、责任组织、技术分类（NASA Taxonomy）、目标方向（Earth/Moon/Mars …）</td>
+    <td>技术项目（非物理目标，约 20,000 条）</td>
+    <td>按需拉取（首次约 25–60 分钟，含本地缓存）</td>
+    <td>持续更新，公开端点；可选 API Token（每次刷新 TechPort 站点都会换 token）</td>
+  </tr>
 </table>
 
 <h2>各数据源详解</h2>
@@ -142,6 +149,10 @@
   <div class="card">
     <h4>Asterank</h4>
     <p>独立的<strong>小行星 / 近地天体（NEO）专题库</strong>，基于 JPL Small-Body Database 扩展了经济价值估算字段（price、profit、Δv）。在系统中与地球在轨目标目录分离存储于 <code>external_asterank</code> 表，可在 <a href="/docs/modules/catalog">目标目录</a>的「小行星 / NEO (Asterank)」标签页筛选查看。由 <code>scripts/ingest_asterank.py</code> 导入。</p>
+  </div>
+  <div class="card">
+    <h4>NASA TechPort</h4>
+    <p>独立的 <strong>NASA 航天技术项目组合（technology portfolio）</strong>，覆盖约 20,000 个 NASA 资助 / 跟踪的技术项目。每条记录含项目标题、详细描述、Technology Readiness Level（TRL，起 / 当前 / 终）、责任组织（含国家与州）、NASA 技术分类（TX01–TX17）、起止日期与目标方向（Earth / Moon / Mars …）。存储于 <code>external_techport</code> 表，可在 <a href="/docs/modules/catalog">目标目录</a>的「NASA 技术项目 (TechPort)」标签页筛选查看。由 <code>scripts/ingest_techport.py</code> 导入；公开端点无需 token，如需私有 / 草稿数据可在 <a href="https://techport.nasa.gov/help/api" target="_blank">techport.nasa.gov/help/api</a> 复制当前会话 token 并填入 <code>NASA_TECHPORT_TOKEN</code>（每次刷新都会变）。</p>
   </div>
 </div>
 
@@ -202,6 +213,11 @@
     <td>小行星 / NEO 轨道根数与估值</td>
     <td>Asterank</td>
     <td><a href="/docs/modules/catalog">目标目录</a> →「小行星 / NEO (Asterank)」</td>
+  </tr>
+  <tr>
+    <td>NASA 资助技术项目（TRL / 机构 / 分类）</td>
+    <td>NASA TechPort</td>
+    <td><a href="/docs/modules/catalog">目标目录</a> →「NASA 技术项目 (TechPort)」</td>
   </tr>
 </table>
 

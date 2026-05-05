@@ -128,7 +128,7 @@ def query_by_rcs(q: RCSQuery):
          summary="系统概况统计",
          description="返回数据库中各类目标的总数、数据源统计等概况信息，"
                      "包括多源融合目录（Space-Track / UCS / ESA DISCOS）与"
-                     "独立专题库（GCAT / UNOOSA / Asterank）的入库条数。")
+                     "独立专题库（GCAT / UNOOSA / Asterank / NASA TechPort）的入库条数。")
 def system_stats():
     from database.db import session_scope
     from sqlalchemy import text
@@ -155,6 +155,7 @@ def system_stats():
                 ("gcat_onorbit_snapshot",       "external_onorbit_snapshot"),
                 ("unoosa",    "external_unoosa_launches"),
                 ("asterank",  "external_asterank"),
+                ("techport",  "external_techport"),
             ]
             for key, tbl in _ext_tables:
                 try:
