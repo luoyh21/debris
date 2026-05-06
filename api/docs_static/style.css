@@ -248,3 +248,28 @@ tr:nth-child(even) td { background: rgba(0,0,0,.02); }
   .sidebar { display: none; }
   .main { margin-left: 0; padding: 24px 18px 60px; }
 }
+
+/* ─── Dark mode (OS / browser prefers dark) ───────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --card: #1c2128;
+    --elevated: #21262d;
+    --accent: #58a6ff;
+    --accent-dim: rgba(56,139,253,.15);
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --text: #e6edf3;
+    --text-secondary: #8d96a0;
+    --text-dim: #6e7681;
+    --border: #30363d;
+    --border-light: #21262d;
+  }
+  code { background: rgba(110,118,129,.15); color: #ff7b72; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.03); }
+  .search-results-input { background: var(--surface); color: var(--text); }
+  .search-result .snippet mark { background: rgba(210,153,34,.25); color: var(--text); }
+  .info-box { background: rgba(56,139,253,.1); }
+}
