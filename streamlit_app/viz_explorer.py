@@ -34,6 +34,43 @@ except Exception:
 _MU_KM3S2  = 398600.4418
 _OMEGA_E   = 7.2921150e-5   # rad/s
 
+
+def _propagate_coast_ecef(
+    r_ecef: np.ndarray,
+    vel_ecef: np.ndarray,
+    dt_s: float,
+) -> np.ndarray:
+    """Propagate a coast-phase orbit and return the new ECEF position (km).
+
+    Key insight: we only need the *relative* Earth rotation during the coast
+    interval, not the absolute GAST/J2000 angle.  This avoids any dependency
+    on launch_utc / session-state and removes the sign-convention ambiguity.
+
+    Algorithm
+    ---------
+    1. Convert the 6-DOF ECEF velocity (rotating-frame) to the inertial
+       velocity expressed in ECEF coordinates at the MECO epoch:
+           v_inertial_ecef = vel_ecef + ω × r_ecef
+    2. Run Keplerian two-body propagation using (r_ecef, v_inertial_ecef)
+       as the initial state.  Treating ECEF as momentarily inertial is valid
+       because Keplerian mechanics is rotation-invariant — a pure frame
+       rotation of the input just produces the same rotation of the output.
+    3. Undo Earth's rotation during the coast: rotate the Keplerian result
+       by −ω·dt_s around Z.  This yields the correct new ECEF position.
+    """
+    omega_vec = np.array([0.0, 0.0, _OMEGA_E])
+    v_inertial = vel_ecef + np.cross(omega_vec, r_ecef)
+    r_kep, _ = _keplerian_propagate_eci(r_ecef, v_inertial, dt_s)
+    # Rotate by -omega*dt to account for Earth's rotation
+    _theta = _OMEGA_E * dt_s
+    _c, _s = math.cos(_theta), math.sin(_theta)
+    return np.array([
+         _c * float(r_kep[0]) + _s * float(r_kep[1]),
+        -_s * float(r_kep[0]) + _c * float(r_kep[1]),
+        float(r_kep[2]),
+    ])
+
+
 def _keplerian_propagate_eci(r0: np.ndarray, v0: np.ndarray,
                               dt_s: float) -> tuple:
     """Propagate ECI state (km, km/s) forward by dt_s seconds under 2-body gravity.
@@ -59,7 +96,7 @@ def _keplerian_propagate_eci(r0: np.ndarray, v0: np.ndarray,
     raan = math.atan2(float(h[0]), -float(h[1])) if h_xy > 1e-9 else 0.0
 
     # Argument of perigee
-    n_hat = np.array([-math.sin(raan), math.cos(raan), 0.0])
+    n_hat = np.array([math.cos(raan), math.sin(raan), 0.0])
     if e > 1e-9:
         cos_w = max(-1.0, min(1.0, float(np.dot(n_hat, e_vec)) / e))
         omega = math.acos(cos_w)
@@ -118,22 +155,6 @@ def _keplerian_propagate_eci(r0: np.ndarray, v0: np.ndarray,
     return Q @ r_pf, Q @ v_pf
 
 
-def _eci_to_ecef_r(r_eci: np.ndarray, t_met_s: float,
-                   launch_utc) -> np.ndarray:
-    """Rotate ECI position to ECEF using Earth rotation."""
-    from datetime import timezone
-    if launch_utc is None:
-        return r_eci
-    j2000 = __import__('datetime').datetime(2000, 1, 1, 12, 0, 0,
-                                             tzinfo=timezone.utc)
-    t_j2k = (launch_utc - j2000).total_seconds() + t_met_s
-    theta  = _OMEGA_E * t_j2k
-    c, s   = math.cos(theta), math.sin(theta)
-    # ECI → ECEF: rotate by -theta around Z
-    x = c * float(r_eci[0]) + s * float(r_eci[1])
-    y = -s * float(r_eci[0]) + c * float(r_eci[1])
-    z = float(r_eci[2])
-    return np.array([x, y, z])
 
 # ─── Design tokens ────────────────────────────────────────────────────────────
 DARK_BG   = "#0e1117"
@@ -1169,6 +1190,8 @@ def make_mission_fig(
     risk_events: list,
     rocket_state: Optional[dict] = None,
     traj_half_window: int = 40,   # show N future traj points after current idx
+    launch_utc=None,              # kept for API compatibility (unused)
+    past_lla: Optional[list] = None,  # pre-computed (lat,lon,alt) arc from caller
 ) -> go.Figure:
     """3D figure — LOCAL rocket frame + full-size Earth as backdrop.
 
@@ -1176,8 +1199,11 @@ def make_mission_fig(
     (-rx, -ry, -rz) — full size sphere visible.  scene.*.range is set to
     ±r_norm so the whole Earth fits, while the initial camera is positioned
     close to the rocket for a useful starting view.
-    Already-flown arc spans from launch site (traj[0]) all the way to the
-    current rocket position for maximum trajectory context.
+
+    past_lla: pre-computed list of (lat_deg, lon_deg, alt_km) tuples for the
+    complete past trajectory including any coast extension. The last tuple
+    must match rocket_state exactly so the arc ends at local origin (0,0,0).
+    When None, only the nominal sim points up to t_slider_s are used.
     """
     fig = go.Figure()
 
@@ -1208,9 +1234,11 @@ def make_mission_fig(
     r_norm = float(np.sqrt(rx**2 + ry**2 + rz**2))   # distance from Earth center → rocket
     vel_kms = rp_live["vel_kms"]
 
-    # ── Scene range: large enough to fit full Earth sphere ───────────────────
-    # r_norm ≈ R_EARTH + alt_km.  Adding 20% margin ensures sphere fits fully.
-    scene_km = r_norm * 1.20
+    # ── Scene range: large enough to fit the COMPLETE Earth sphere ───────────
+    # The Earth centre is at (-rx,-ry,-rz); its far edge is r_norm + R_EARTH
+    # from the rocket (origin).  Without enough range the back hemisphere is
+    # clipped by the scene bounding box → only "one face" of Earth visible.
+    scene_km = (r_norm + R_EARTH) * 1.05
 
     # ── Earth as full sphere (local frame) ───────────────────────────────────
     _add_earth_local(fig, rx, ry, rz, n=55)
@@ -1225,28 +1253,50 @@ def make_mission_fig(
                 np.asarray(wy) - ry,
                 np.asarray(wz) - rz)
 
-    # Past arc: all points from start up to (and including) current index
-    past_pts = traj_points[: idx + 1]
-    if len(past_pts) >= 2:
-        px_l, py_l, pz_l = _local(past_pts)
+    in_coast = (t_slider_s > times_arr[-1])
+
+    # ── Past arc: single continuous trace from launch → rocket ───────────────
+    # Use pre-computed past_lla when available (includes coast extension).
+    # The last entry of past_lla is numerically identical to rocket_state, so
+    # lla_to_ecef(last) - (rx,ry,rz) = (0,0,0) → arc ends exactly at rocket.
+    if past_lla and len(past_lla) >= 2:
+        _lats = [p[0] for p in past_lla]
+        _lons = [p[1] for p in past_lla]
+        _alts = [p[2] for p in past_lla]
+        _px, _py, _pz = lla_to_ecef(_lats, _lons, _alts)
+        _arc_x = np.asarray(_px) - rx
+        _arc_y = np.asarray(_py) - ry
+        _arc_z = np.asarray(_pz) - rz
         fig.add_trace(go.Scatter3d(
-            x=px_l, y=py_l, z=pz_l,
+            x=_arc_x, y=_arc_y, z=_arc_z,
             mode="lines",
             line=dict(color="#00CCFF", width=2.5),
             hoverinfo="skip", name="已飞航段",
         ))
+    else:
+        # Fallback: nominal points only up to current index
+        past_pts = traj_points[: idx + 1]
+        if len(past_pts) >= 2:
+            px_l, py_l, pz_l = _local(past_pts)
+            fig.add_trace(go.Scatter3d(
+                x=px_l, y=py_l, z=pz_l,
+                mode="lines",
+                line=dict(color="#00CCFF", width=2.5),
+                hoverinfo="skip", name="已飞航段",
+            ))
 
-    # Future window: current index → next N points
-    i1 = min(len(traj_points), idx + traj_half_window + 1)
-    fut_pts = traj_points[idx: i1]
-    if len(fut_pts) >= 2:
-        fx_l, fy_l, fz_l = _local(fut_pts)
-        fig.add_trace(go.Scatter3d(
-            x=fx_l, y=fy_l, z=fz_l,
-            mode="lines",
-            line=dict(color="#1a3a6a", width=1.5),
-            opacity=0.65, hoverinfo="skip", name="待飞航段",
-        ))
+    # ── Future window (nominal phase only) ───────────────────────────────────
+    if not in_coast:
+        i1 = min(len(traj_points), idx + traj_half_window + 1)
+        fut_pts = traj_points[idx: i1]
+        if len(fut_pts) >= 2:
+            fx_l, fy_l, fz_l = _local(fut_pts)
+            fig.add_trace(go.Scatter3d(
+                x=fx_l, y=fy_l, z=fz_l,
+                mode="lines",
+                line=dict(color="#1a3a6a", width=1.5),
+                opacity=0.65, hoverinfo="skip", name="待飞航段",
+            ))
 
     # ── Rocket marker at local origin ────────────────────────────────────────
     fig.add_trace(go.Scatter3d(
@@ -2688,23 +2738,76 @@ def _render_mission_slider():
     disp_vel_kms = vel_kms
     disp_lat     = rp.lat_deg
     disp_lon     = rp.lon_deg
+
+    # Pre-compute the trajectory arc for the 3-D figure.
+    #
+    # Design rationale: Plotly Scatter3d has no depth-occlusion against Surface
+    # traces, so any line segment that passes *behind* the Earth sphere will
+    # visually appear to cut through it.  To avoid this:
+    #
+    # • Nominal phase  – show only the recent ascent window (last _TRAIL_PTS
+    #   trajectory points up to current index).  All points are near the rocket
+    #   and in the same "hemisphere" of the local view.
+    # • Coast phase    – show ONLY the Keplerian coast arc from MECO → current
+    #   rocket.  The early-ascent nominal points (near Earth's surface on the
+    #   far side of the globe) are intentionally omitted.
+    #
+    # The final `_past_lla` entry is always (disp_lat, disp_lon, disp_alt_km),
+    # which is numerically identical to rocket_state, so the arc ends exactly
+    # at the rocket marker (local origin = 0, 0, 0).
+    _TRAIL_PTS = 200   # max nominal points shown in non-coast phase
+
     if in_orbit_coast:
-        # Propagate last nominal point forward as a 2-body Keplerian orbit
+        # ── Coast phase: Keplerian propagation in ECEF-relative frame ────────
+        # _propagate_coast_ecef() avoids any dependency on launch_utc / J2000:
+        #   1. Compute inertial velocity at MECO: v_iner = vel_ecef + ω × r_ecef
+        #   2. Keplerian-propagate (r_ecef, v_iner) forward dt_s seconds
+        #      (ECEF treated as momentarily inertial — valid due to rotation-
+        #       invariance of two-body mechanics)
+        #   3. Undo Earth rotation: rotate result by −ω·dt around Z
         _coast_dt = float(t_slider - t_max_act)
-        _r0 = nom[-1].pos_eci.copy()
-        _v0 = nom[-1].vel_eci.copy()
+        # Start arc at MECO (above Earth sphere, no occlusion issues)
+        _past_lla: list[tuple[float, float, float]] = [
+            (float(nom[-1].lat_deg), float(nom[-1].lon_deg), float(nom[-1].alt_km))
+        ]
         try:
-            _r_kep, _v_kep = _keplerian_propagate_eci(_r0, _v0, _coast_dt)
-            disp_vel_kms = float(np.linalg.norm(_v_kep))
-            _r_ecef = _eci_to_ecef_r(_r_kep, float(nom[-1].t_met_s + _coast_dt),
-                                      st.session_state.get("ms_launch_utc"))
-            from trajectory.six_dof import ecef_to_geodetic
-            _lat, _lon, _alt = ecef_to_geodetic(_r_ecef)
+            from trajectory.six_dof import ecef_to_geodetic as _eg
+
+            # ── Final rocket position ─────────────────────────────────────────
+            _r_ecef_new = _propagate_coast_ecef(
+                nom[-1].pos_ecef, nom[-1].vel_ecef, _coast_dt
+            )
+            _lat, _lon, _alt = _eg(_r_ecef_new)
             disp_alt_km = float(_alt)
             disp_lat    = float(_lat)
             disp_lon    = float(_lon)
+            # Inertial speed (magnitude preserved by rotation)
+            _v_iner = nom[-1].vel_ecef + np.cross(
+                np.array([0.0, 0.0, _OMEGA_E]), nom[-1].pos_ecef
+            )
+            disp_vel_kms = float(np.linalg.norm(_v_iner))  # const for 2-body
+
+            # Dense intermediate coast arc
+            _ns = max(20, int(_coast_dt / 20))
+            for _k in range(1, _ns):
+                _dtk = _coast_dt * _k / _ns
+                _rk_ecef = _propagate_coast_ecef(
+                    nom[-1].pos_ecef, nom[-1].vel_ecef, _dtk
+                )
+                _latk, _lonk, _altk = _eg(_rk_ecef)
+                _past_lla.append((float(_latk), float(_lonk), float(_altk)))
+            # Final point = exact rocket state
+            _past_lla.append((disp_lat, disp_lon, disp_alt_km))
         except Exception:
-            pass   # fall back to stale MECO values
+            # Fall back: just MECO + current (short straight line, acceptable)
+            _past_lla.append((disp_lat, disp_lon, disp_alt_km))
+    else:
+        # ── Nominal phase: recent trajectory window only ──────────────────────
+        _start = max(0, idx + 1 - _TRAIL_PTS)
+        _past_lla = [
+            (float(p.lat_deg), float(p.lon_deg), float(p.alt_km))
+            for p in nom[_start: idx + 1]
+        ]
 
     phase_tag = (
         "轨道惯性飞行" if in_orbit_coast else
@@ -2755,6 +2858,7 @@ def _render_mission_slider():
             nearby,
             risk_events,
             rocket_state=rocket_state,
+            past_lla=_past_lla,
         )
         st.plotly_chart(fig_m, use_container_width=True,
                         config=dict(scrollZoom=True, displayModeBar=True))

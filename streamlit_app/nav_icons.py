@@ -2,7 +2,7 @@
 """Minimal line-art SVG icons for navigation (research / technical style)."""
 from __future__ import annotations
 
-_STROKE = "#1e3a5f"
+_STROKE = "currentColor"
 _SW = "1.55"
 
 
@@ -177,11 +177,14 @@ def icon_inline(name: str, size: int = 22) -> str:
 
 
 def title_row(icon_name: str, title_text: str, *, icon_size: int = 34) -> str:
-    """Single h1 row: icon + title (serif-free, compact)."""
+    """Single h1 row: icon + title (serif-free, compact).
+
+    Uses color:inherit so the text is readable in both Streamlit light and dark mode.
+    """
     ic = icon_inline(icon_name, size=icon_size)
     return (
         '<h1 style="display:flex;align-items:center;gap:14px;font-size:1.85rem;'
-        'font-weight:600;margin:0.15em 0 0.35em 0;color:#0f172a;letter-spacing:0.02em">'
+        'font-weight:600;margin:0.15em 0 0.35em 0;color:inherit;letter-spacing:0.02em">'
         f"{ic}<span>{title_text}</span></h1>"
     )
 
@@ -191,20 +194,23 @@ def sidebar_brand_row() -> str:
     return (
         '<div style="display:flex;align-items:center;gap:10px;margin:0 0 14px 0;padding:4px 0">'
         f"{ic}"
-        '<span style="font-size:1.05rem;font-weight:600;color:#0f172a">空间碎片监测系统</span>'
+        '<span style="font-size:1.05rem;font-weight:600;color:inherit">空间碎片监测系统</span>'
         "</div>"
     )
 
 
 def section_title(icon_name: str, text: str, *, level: int = 3, icon_size: int = 22) -> str:
-    """Section heading (h2–h4) with inline SVG + text."""
+    """Section heading (h2–h4) with inline SVG + text.
+
+    Uses color:inherit for dark-mode compatibility.
+    """
     lv = min(max(level, 2), 4)
     tag = f"h{lv}"
     sz = {2: "1.35rem", 3: "1.12rem", 4: "1.02rem"}.get(lv, "1.12rem")
     ic = icon_inline(icon_name, size=icon_size)
     return (
         f'<{tag} style="display:flex;align-items:center;gap:10px;font-size:{sz};'
-        'font-weight:600;color:#0f172a;margin:0.85em 0 0.45em 0">'
+        'font-weight:600;color:inherit;margin:0.85em 0 0.45em 0">'
         f"{ic}<span>{text}</span></{tag}>"
     )
 
