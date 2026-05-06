@@ -15,10 +15,10 @@ The script always does **incremental** work — never re-pulling data older than
 ``since``.  Wherever the upstream supports server-side filtering it is used
 directly so that the wire payload only contains new rows.
 
-  * Space-Track:  REST query ``class/gp/EPOCH/>{since}`` so we only download
-                  TLEs whose epoch is newer than the cutoff (and their parent
-                  catalog rows).  Trajectory segments are regenerated for the
-                  affected objects only.
+  * Space-Track:  REST query ``class/gp/EPOCH/>{since}`` — upstream returns
+                  **every GP revision** newer than the cutoff (often multiple
+                  rows per NORAD).  We **dedupe to latest epoch per NORAD**
+                  before upsert so incremental volume matches “objects updated”.
   * GCAT (McDowell satcat.tsv):  LOCAL FILE — banner reminds you to refresh
                   ``data/external/jm_satcat.tsv`` from upstream first; we then
                   read the file and keep only rows whose ``LDate`` ≥ since.
@@ -174,6 +174,34 @@ def _upsert_dataframe(df: pd.DataFrame, table: str, pk_cols: list[str],
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Space-Track helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _dedupe_gp_latest_per_norad(records: list[dict]) -> list[dict]:
+    """API ``EPOCH/>since`` returns every GP row newer than cutoff — multiple
+    revisions per satellite.  Keep the **latest EPOCH** per ``NORAD_CAT_ID``.
+    """
+    from dateutil.parser import parse as dparse
+
+    best: dict[int, tuple[dt.datetime, dict]] = {}
+    for rec in records:
+        try:
+            nid = int(rec["NORAD_CAT_ID"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        epoch_str = rec.get("EPOCH", "")
+        try:
+            epoch = dparse(epoch_str).replace(tzinfo=dt.timezone.utc)
+        except Exception:
+            continue
+        prev = best.get(nid)
+        if prev is None or epoch > prev[0]:
+            best[nid] = (epoch, rec)
+    return [t[1] for t in best.values()]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 1. Space-Track  (TLE / GP elements with EPOCH > since)
 # ──────────────────────────────────────────────────────────────────────────────
 def incremental_spacetrack(since: dt.datetime, *,
@@ -209,7 +237,13 @@ def incremental_spacetrack(since: dt.datetime, *,
         resp = client._session.get(url, timeout=600)
         resp.raise_for_status()
         records = resp.json() or []
-    log.info("  返回 %d 条新 GP 记录", len(records))
+    raw_n = len(records)
+    records = _dedupe_gp_latest_per_norad(records)
+    log.info(
+        "  Space-Track 原始 %d 条 GP → 按 NORAD 保留最新 epoch 后 %d 条",
+        raw_n,
+        len(records),
+    )
 
     if not records:
         return 0
