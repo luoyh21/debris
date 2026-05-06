@@ -162,13 +162,71 @@ python3 run.py lcola --oem /tmp/czb5_nominal.oem \
     --output /tmp/lcola_result.json
 ```
 
-### 6. 启动 Streamlit 仪表盘
+### 6. 启动 Web 服务（Streamlit + FastAPI，完整前台）
+
+需要两个终端分别启动仪表盘与 API/文档（默认端口与 `run.py` 一致）。
+
+**终端 A — Streamlit 仪表盘**
 
 ```bash
 python3 run.py app --port 8501
-# 访问 http://localhost:8501
 ```
 
+**终端 B — FastAPI（REST + 文档）**
+
+```bash
+python3 run.py api --port 8502
+```
+
+本机浏览器：
+
+| 服务 | 地址 |
+|------|------|
+| 仪表盘 | http://localhost:8501 |
+| 系统说明（静态页） | http://localhost:8502/docs |
+| REST Swagger | http://localhost:8502/api/docs |
+
+#### 查看本机 IP（局域网内其他设备访问）
+
+前端默认绑定 `0.0.0.0`（见 `run.py` 中 `cmd_app`），API 使用 `uvicorn` 绑定 `0.0.0.0`，同一 LAN 内的手机/平板/另一台电脑可用 **你的局域网 IPv4** 访问。
+
+**Windows（PowerShell）推荐：**
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.PrefixOrigin -ne 'WellKnown' -and $_.IPAddress -notlike '169.254.*' } |
+  Select-Object IPAddress, InterfaceAlias
+```
+
+也可使用：
+
+```powershell
+ipconfig
+```
+
+在正在上网的适配器（如「无线局域网适配器 WLAN」「以太网适配器 以太网」）一节中找到 **IPv4 地址**（常见形如 `192.168.x.x`、`10.x.x.x`）。
+
+**Linux：**
+
+```bash
+hostname -I | awk '{print $1}'
+```
+
+**macOS：**
+
+```bash
+ipconfig getifaddr en0
+```
+
+将得到的地址记为 `<IP>`，则在其他设备浏览器中打开：
+
+- **http://\<IP\>:8501** — 仪表盘  
+- **http://\<IP\>:8502/docs** — 文档  
+- **http://\<IP\>:8502/api/docs** — Swagger  
+
+启动 Streamlit 时，终端里也会打印 **Network URL**，一般即为上述局域网访问地址。
+
+若浏览器无法打开，请在本机防火墙中放行入站 **TCP 8501**、**TCP 8502**（Windows：`wf.msc` → 入站规则 → 新建端口规则）。
 ## Streamlit 页面说明
 
 | 页面 | 功能 |
@@ -378,12 +436,12 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 ### 七、部署方式
 
 - **Docker Compose 一键部署**：`docker compose up -d`
-- 包含三个服务：`db`（PostgreSQL 15 + PostGIS）、`app`（Streamlit 前端，端口 8501）、`api`（REST API + 文档，端口 8000）
+- 包含三个服务：`db`（PostgreSQL 15 + PostGIS）、`app`（Streamlit 前端，端口 **8501**）、`api`（REST API + 文档，端口 **8502**）
 - PostgreSQL 数据持久化于本地 `./pgdata` 目录
 - 健康检查自动等待数据库就绪后再启动前后端服务
-- Streamlit 监听 `0.0.0.0:8501`，API 监听 `0.0.0.0:8000`，支持局域网访问
-- 系统说明文档：`http://<host>:8000/docs`
-- REST API Swagger：`http://<host>:8000/api/docs`
+- Streamlit 监听 `0.0.0.0:8501`，API 监听 `0.0.0.0:8502`，支持局域网访问
+- 系统说明文档：`http://<host>:8502/docs`
+- REST API Swagger：`http://<host>:8502/api/docs`
 
 ---
 
@@ -556,7 +614,7 @@ python scripts/create_unified_view.py
 
 ### Step 8：启动系统
 
-需要同时启动 **前端**（Streamlit）和 **API/文档服务**（FastAPI），建议使用两个终端：
+需要同时启动 **前端**（Streamlit）和 **API/文档服务**（FastAPI），建议使用两个终端。局域网访问方式见上文「**查看本机 IP（局域网内其他设备访问）**」（Linux/macOS 快速开始 §6；本节下方 PowerShell 亦可查询 IP）。
 
 **终端 A — Streamlit 前端：**
 
@@ -569,15 +627,18 @@ python run.py app --port 8501
 
 ```powershell
 .\venv\Scripts\Activate.ps1
-python run.py api --port 8000
+python run.py api --port 8502
 ```
 
 浏览器访问：
-- **http://localhost:8501** — 系统主界面（Streamlit 仪表盘）
-- **http://localhost:8000/docs** — 系统说明文档
-- **http://localhost:8000/api/docs** — REST API Swagger 交互文档
 
-### Step 9：持续化管理 — 按时间增量更新
+- **http://localhost:8501** — 系统主界面（Streamlit 仪表盘）
+- **http://localhost:8502/docs** — 系统说明文档
+- **http://localhost:8502/api/docs** — REST API Swagger 交互文档
+
+同一局域网内其他设备访问：在 PowerShell 执行  
+`Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.PrefixOrigin -ne 'WellKnown' -and $_.IPAddress -notlike '169.254.*' } | Select-Object IPAddress, InterfaceAlias`  
+得到 IPv4 后访问 `http://<IP>:8501` 与 `http://<IP>:8502/docs`（详见上文「快速开始 → §6」）。
 
 完成首次全量摄入后，日常维护只需根据**上一次更新时间**做增量同步即可，无需重跑全量。脚本 `scripts/ingest_incremental.py` 会自动用 API 服务端过滤 + 本地文件按列过滤，只拉取 / 合并 since 之后的新增 / 变更行（DELETE-by-PK + INSERT，幂等可重复运行）。
 
@@ -663,7 +724,7 @@ python scripts/create_unified_view.py
 
 # 8. 启动前端 + API 服务（两个终端）
 python run.py app --port 8501               # 终端 A：Streamlit 前端 → http://localhost:8501
-python run.py api --port 8000               # 终端 B：API + 文档 → http://localhost:8000/docs
+python run.py api --port 8502               # 终端 B：API + 文档 → http://localhost:8502/docs
 
 # 9. 持续化管理：按上次更新时间做增量同步（日常维护）
 python scripts/ingest_incremental.py --since 2026-04-22
@@ -682,7 +743,7 @@ python scripts/ingest_incremental.py --since 2026-04-22
 | ESA DISCOS 返回 401 | 在 discosweb.esoc.esa.int 注册获取 Token 填入 `.env` |
 | NASA TechPort 拉取过慢或 429 | 公开端点可不带 token；如频繁限流，可访问 https://techport.nasa.gov/help/api 复制当前会话 token 填入 `NASA_TECHPORT_TOKEN`，或 `--workers 4` 降低并发 |
 | 页面显示"暂无数据" | 检查 Step 6 数据摄入是否完成，Step 7 统一视图是否已创建 |
-| 侧边栏"系统说明文档"打不开 | 确认 API 服务已启动（Step 8 终端 B），检查端口 8000 是否可访问 |
+| 侧边栏「系统说明文档」打不开 | 确认 API 服务已启动（Step 8 终端 B），检查端口 **8502** 是否可访问 |
 
 ---
 
