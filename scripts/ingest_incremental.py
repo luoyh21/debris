@@ -65,9 +65,34 @@ logging.basicConfig(
 )
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "external")
+PKG_DIR  = os.path.join(os.path.dirname(__file__), "..", "data", "incremental_packages")
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(PKG_DIR,  exist_ok=True)
 
 ALL_SOURCES = ["spacetrack", "gcat", "unoosa", "ucs", "esa", "asterank", "techport"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Snapshot collector
+# ──────────────────────────────────────────────────────────────────────────────
+# Each successful upsert records its DataFrame here, keyed by
+# "<source>__<table>".  At the end of the run main() zips the lot into a single
+# package that ``apply_incremental_package.py`` can replay against any database.
+_PKG_BUFFER: dict[str, dict[str, Any]] = {}
+
+
+def _pkg_record(source: str, table: str, pk_cols: list[str],
+                df: "pd.DataFrame") -> None:
+    """Stash a slice of upserted rows for inclusion in the snapshot zip."""
+    if df is None or df.empty:
+        return
+    key = f"{source}__{table}"
+    _PKG_BUFFER[key] = {
+        "source": source,
+        "table": table,
+        "pk_cols": list(pk_cols),
+        "df": df.copy(),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -115,15 +140,22 @@ def _banner_local_file(label: str, path: str, url: str, hint: str) -> None:
 
 
 def _upsert_dataframe(df: pd.DataFrame, table: str, pk_cols: list[str],
-                      engine, source_label: str = "") -> int:
+                      engine, source_label: str = "",
+                      pkg_source: str | None = None) -> int:
     """Idempotent upsert: DELETE matching rows by PK, then INSERT.
 
     If the target table doesn't exist yet, fall back to creating it (full
     replace) so a first-time run also works.
+
+    ``pkg_source`` (when given) is the canonical source name used in the
+    incremental snapshot zip (e.g. ``"gcat"``, ``"ucs"``).  When omitted we
+    derive it from ``source_label`` (lower-cased first token).
     """
     if df is None or df.empty:
         log.info("  %s · 无新增 / 变更行", source_label or table)
         return 0
+    pkg_src = pkg_source or (source_label.split()[0].lower() if source_label else table)
+    _pkg_record(pkg_src, table, list(pk_cols), df)
 
     insp = inspect(engine)
     if not insp.has_table(table):
@@ -248,6 +280,14 @@ def incremental_spacetrack(since: dt.datetime, *,
     if not records:
         return 0
 
+    # Stash raw GP records for the snapshot zip — apply_incremental_package
+    # replays them through ingestion.ingest_gp.* on the destination DB.
+    try:
+        _pkg_record("spacetrack", "gp_records", ["NORAD_CAT_ID"],
+                    pd.DataFrame(records))
+    except Exception as exc:
+        log.debug("snapshot capture for spacetrack failed: %s", exc)
+
     from ingestion.ingest_gp import _upsert_catalog, _upsert_gp, _ingest_segments
     from database.db import init_db
     init_db()
@@ -284,11 +324,15 @@ def incremental_gcat(since: dt.datetime, engine) -> int:
     the existing aggregate tables (DELETE-by-key + INSERT).
     """
     log.info("=" * 72)
-    log.info("=== [2/7] GCAT McDowell Satellite Catalogue (local file) ===")
+    log.info("=== [2/7] GCAT McDowell Satellite Catalogue (auto-download) ===")
 
-    tsv = os.path.join(DATA_DIR, "jm_satcat.tsv")
+    try:
+        from scripts._auto_download import download_gcat
+    except Exception:
+        from _auto_download import download_gcat  # type: ignore
+    tsv = download_gcat(DATA_DIR) or os.path.join(DATA_DIR, "jm_satcat.tsv")
     if not os.path.exists(tsv):
-        log.warning("  本地 GCAT 文件不存在，跳过 GCAT 增量更新")
+        log.warning("  GCAT TSV 不可用，跳过 GCAT 增量更新")
         return 0
 
     try:
@@ -431,11 +475,15 @@ def incremental_ucs(since: dt.datetime, engine) -> int:
     external_ucs_satellites.
     """
     log.info("=" * 72)
-    log.info("=== [4/7] UCS Satellite Database (local file) ===")
+    log.info("=== [4/7] UCS Satellite Database (auto-download) ===")
 
-    xlsx = os.path.join(DATA_DIR, "ucs_satellites.xlsx")
+    try:
+        from scripts._auto_download import download_ucs
+    except Exception:
+        from _auto_download import download_ucs  # type: ignore
+    xlsx = download_ucs(DATA_DIR) or os.path.join(DATA_DIR, "ucs_satellites.xlsx")
     if not os.path.exists(xlsx):
-        log.warning("  本地 UCS 文件不存在，跳过 UCS 增量更新")
+        log.warning("  UCS xlsx 不可用，跳过 UCS 增量更新")
         return 0
 
     try:
@@ -800,23 +848,8 @@ def main() -> None:
     summary: dict[str, int] = {}
     t_start = time.time()
 
-    # Pre-print local-file banners up-front so the user sees them immediately,
-    # before any blocking API calls — this satisfies the "每次运行前输出对更新
-    # 这两个文件的提示" requirement even if the user only chose other sources.
-    if "gcat" in sources:
-        _banner_local_file(
-            label="GCAT (McDowell)",
-            path=os.path.join(DATA_DIR, "jm_satcat.tsv"),
-            url="https://planet4589.org/space/gcat/tsv/cat/satcat.tsv",
-            hint="若需最新数据请先下载到 data/external/jm_satcat.tsv 后再运行此脚本。",
-        )
-    if "ucs" in sources:
-        _banner_local_file(
-            label="UCS Satellite Database",
-            path=os.path.join(DATA_DIR, "ucs_satellites.xlsx"),
-            url="https://www.ucsusa.org/nuclear-weapons/space-weapons/satellite-database",
-            hint="UCS 每半年发布一次新版本，请下载替换后再运行此脚本。",
-        )
+    # GCAT and UCS are downloaded automatically when each incremental runs;
+    # no manual-download banner is needed any more.
 
     # Dispatch
     if "spacetrack" in sources:
@@ -890,6 +923,61 @@ def main() -> None:
             tag = "FAILED" if n < 0 else f"{n} rows upserted"
             log.info("  %-12s %s", src, tag)
     log.info("Total elapsed: %.1f s", elapsed)
+
+    # ── Build snapshot package ────────────────────────────────────────────
+    pkg_path = build_snapshot_package(since, summary)
+    if pkg_path:
+        log.info("Snapshot package: %s", pkg_path)
+    return pkg_path
+
+
+def build_snapshot_package(since: dt.datetime,
+                           summary: dict[str, int]) -> str | None:
+    """Zip the per-source upsert payloads + manifest.json into a single archive
+    under ``data/incremental_packages/``.  Returns the archive path, or None
+    when nothing was produced.
+    """
+    if not _PKG_BUFFER:
+        log.info("打包阶段：本次未产生任何增量行，不生成压缩包")
+        return None
+
+    import io
+    import json
+    import zipfile
+
+    run_ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    zname  = f"incremental_{since.strftime('%Y%m%d')}_to_{run_ts}.zip"
+    zpath  = os.path.join(PKG_DIR, zname)
+
+    manifest = {
+        "since": since.isoformat(),
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "summary_rows_upserted": summary,
+        "files": [],
+    }
+
+    with zipfile.ZipFile(zpath, "w", compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=6) as zf:
+        for key, item in _PKG_BUFFER.items():
+            df = item["df"]
+            inner = f"data/{item['source']}/{item['table']}.csv"
+            buf = io.StringIO()
+            df.to_csv(buf, index=False)
+            zf.writestr(inner, buf.getvalue())
+            manifest["files"].append({
+                "source":  item["source"],
+                "table":   item["table"],
+                "pk_cols": item["pk_cols"],
+                "rows":    int(len(df)),
+                "path":    inner,
+            })
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2,
+                                                 ensure_ascii=False))
+
+    size_mb = os.path.getsize(zpath) / 1024 / 1024
+    log.info("打包完成：%s   (%d 个表，%.2f MB)",
+             zname, len(manifest["files"]), size_mb)
+    return zpath
 
 
 if __name__ == "__main__":

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>太空事件管理 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/avoidance">规避策略生成器</a>
+    <a href="/docs/modules/events" class="active">太空事件管理</a>
+    <a href="#sources"  class="sub">数据来源与抓取</a>
+    <a href="#sbm"      class="sub">NASA SBM 解体模型</a>
+    <a href="#ccsds"    class="sub">CCSDS NDM 标准</a>
+    <a href="#api"      class="sub">REST 接口</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/validation">算法正确性验证</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>太空事件管理</h1>
+<p><span class="tag tag-scene">场景</span> 把<strong>解体、碰撞、再入、机动、合取预警 (CDM)</strong> 等在轨事件作为一等公民管理：自动从外部权威源拉取，本地手填补充，应用 NASA Standard Breakup Model 预测碎片产物，并按 CCSDS NDM 标准与外部 SSA 平台无损互通。</p>
+
+<div class="info-box">
+  ⚡ <strong>本系统将事件视为<i>预测未来风险的输入参数</i></strong>，而不仅是历史记录。任意一次解体 / 碰撞事件都可以「点击 → 一键 SBM 模拟 → 生成碎片云 → 直接进入避撞筛查」。
+</div>
+
+<h2 id="sources">数据来源与抓取</h2>
+
+<table>
+  <tr><th>来源</th><th>覆盖</th><th>API / 字段</th><th>抓取脚本</th></tr>
+  <tr>
+    <td><strong>ESA DISCOSweb</strong></td>
+    <td>1957 年至今 670+ 次解体 / 碰撞事件，含失效原因、观测碎片数</td>
+    <td><code>GET /api/fragmentations</code> · 返回 JSON · 需 <code>ESA_DISCOS_TOKEN</code></td>
+    <td><code>--discos</code></td>
+  </tr>
+  <tr>
+    <td><strong>Space-Track CDM</strong></td>
+    <td>USSPACECOM 实时合取预警（每 8 h 全量更新，TCA 倒序）</td>
+    <td><code>class/cdm_public</code> · 含 TCA / MISS_DISTANCE / Pc / SAT_x_NAME</td>
+    <td><code>--cdm</code></td>
+  </tr>
+  <tr>
+    <td><strong>Space-Track Decay/TIP</strong></td>
+    <td>历史 + 未来再入冲击点预测</td>
+    <td><code>class/decay</code> · 含 DECAY_EPOCH / RCS_SIZE / NORAD_CAT_ID</td>
+    <td><code>--decay</code></td>
+  </tr>
+  <tr>
+    <td><strong>CelesTrak SOCRATES</strong></td>
+    <td>公开实时合取预警，~150 k 条 / 8 h，无需账号</td>
+    <td><code>SOCRATES/sort-minRange.csv</code> · 含 TCA / TCA_RANGE / MAX_PROB / DILUTION</td>
+    <td><code>--socrates</code></td>
+  </tr>
+  <tr>
+    <td><strong>Jonathan McDowell GCAT</strong> (<code>ecat</code>)</td>
+    <td>历史相位转换日志 (CC-BY)；状态码 AR/AL/D/DK/DSO 映射 REENTRY，GRP 映射 FRAGMENTATION</td>
+    <td><code>planet4589.org/space/gcat/tsv/cat/ecat.tsv</code></td>
+    <td><code>--gcat</code></td>
+  </tr>
+  <tr>
+    <td><strong>本地手填 / CCSDS 上传</strong></td>
+    <td>其他源未收录的事件、外部 SSA 中心生成的 CDM/OPM/OEM/OCM/RDM</td>
+    <td>KVN / XML 自动识别</td>
+    <td>Streamlit 表单 / <code>POST /api/v1/events</code> / <code>POST /api/v1/events/import</code></td>
+  </tr>
+</table>
+
+<h3>抓取脚本一览</h3>
+<pre><code># 全量一次性拉取（5 个数据源，~2,000+ 条事件）
+docker exec debris-api-1 python scripts/ingest_events.py --all --max 1000
+
+# 子集 + 增量起点过滤
+docker exec debris-api-1 python scripts/ingest_events.py --discos --socrates --since 2026-04-01
+
+# 增量 + 打包 zip（与碎片增量同套架构）
+docker exec debris-api-1 python scripts/ingest_events_incremental.py --since 2026-04-01
+
+# 30 天循环 + SMTP 邮件投递
+docker exec -d debris-api-1 python scripts/events_scheduler.py
+
+# 在另一台机器上回放压缩包
+python scripts/apply_events_package.py data/event_packages/events_*.zip</code></pre>
+
+<h2 id="sbm">NASA Standard Breakup Model（解体建模核心）</h2>
+
+<p>当事件进入数据库后，系统并不只把它当成一个静态点——而是用 <strong>NASA Standard Breakup Model (Johnson et al. 2001)</strong> 即时生成数百到数千个碎片，每个碎片携带：</p>
+<ul>
+  <li><strong>特征长度</strong> Lc (m) — 累积幂律分布</li>
+  <li><strong>面质比</strong> A/M (m²/kg) — 对数高斯分布</li>
+  <li><strong>弹出速度</strong> Δv 矢量 — log10|Δv| ~ N(0.9·log10(A/M)+μ, 0.4²)，方向各向同性</li>
+</ul>
+
+<h3>Lc 累积分布（Johnson 2001）</h3>
+<pre><code>解体（爆炸）  :  N(>Lc) = 6 · Lc⁻¹·⁶                    (Lc 单位 m)
+碰撞         :  N(>Lc) = 0.1 · M^0.75 · Lc⁻¹·⁷¹       (M = 联合质量 kg)</code></pre>
+
+<h3>能量 / 质量比 ⇒ 灾难性判别</h3>
+<p>定义 <code>E/M = ½ · μ · v_rel² / m_total</code>（J/g）。
+当 <strong>E/M ≥ 40 J/g</strong> 时事件被定义为<em>灾难性</em>，母体被认为完全粉碎，质量贡献按总质量计；否则只统计撞击体破碎贡献（NASA EVOLVE 4.0 约定）。</p>
+
+<h3>输出指标</h3>
+<table>
+  <tr><th>指标</th><th>说明</th></tr>
+  <tr><td>n_total</td><td>抽样到的碎片总数（&le; max_fragments）</td></tr>
+  <tr><td>n_tracked_ge_10cm</td><td>≥ 10 cm 可被 USSPACECOM SSN 编目的碎片数</td></tr>
+  <tr><td>n_lethal_ge_1cm</td><td>≥ 1 cm 致命碎片数（NASA-STD-8719.14B 击穿威胁阈）</td></tr>
+  <tr><td>catastrophic</td><td>是否完全粉碎</td></tr>
+</table>
+
+<p>「事件管理 → NASA SBM 模拟」标签页中：选定一条解体或碰撞事件 → 选 Lc 范围与抽样上限 → 一键运行 → 立即给出 4 个指标卡 + 3D 碎片云（按尺寸/可追踪性着色）+ Lc 直方图。导出按钮一键打包为 OCM 文件，所有碎片状态作为 USER_DEFINED_FRAGMENT_xxxx 字段嵌入。</p>
+
+<h2 id="ccsds">CCSDS NDM 互操作性</h2>
+
+<p>系统严格遵循 CCSDS Navigation Data Messages 标准。所有写入器输出 <strong>KVN（key-value-newline）</strong> 文本，是 Space-Track / SDC 默认分发格式。</p>
+
+<table>
+  <tr><th>消息类型</th><th>标准代号</th><th>用途</th><th>本系统行为</th></tr>
+  <tr>
+    <td><strong>CDM</strong></td>
+    <td>CCSDS 508.0-B-1</td>
+    <td>合取预警</td>
+    <td>导入 / 导出 — 含 TCA、MISS_DISTANCE、Pc、Foster-1992 标识</td>
+  </tr>
+  <tr>
+    <td><strong>OPM</strong></td>
+    <td>CCSDS 502.0-B-3</td>
+    <td>单点轨道 + 机动</td>
+    <td>导出避撞机动方案（位置 + 速度 + MAN_DV）</td>
+  </tr>
+  <tr>
+    <td><strong>OEM</strong></td>
+    <td>CCSDS 502.0-B-3</td>
+    <td>完整星历</td>
+    <td>已在「目标目录 OEM 导出」与「轨迹仿真 OEM 导出」实现，TEME 参考系，STK / GMAT 兼容</td>
+  </tr>
+  <tr>
+    <td><strong>OCM</strong></td>
+    <td>CCSDS 502.0-B-3</td>
+    <td>综合任务计划</td>
+    <td>导出包含解体碎片清单的 OCM（USER_DEFINED_FRAGMENT_*）</td>
+  </tr>
+  <tr>
+    <td><strong>RDM</strong></td>
+    <td>CCSDS 508.1-B-1</td>
+    <td>再入消息</td>
+    <td>导入 / 导出 — REENTRY_EPOCH + REENTRY_ALTITUDE</td>
+  </tr>
+</table>
+
+<h2 id="api">REST API 接口</h2>
+
+<table>
+  <tr><th>方法</th><th>路径</th><th>说明</th></tr>
+  <tr><td>GET</td><td><code>/api/v1/events</code></td><td>列出事件，可按类型 / 来源筛选</td></tr>
+  <tr><td>GET</td><td><code>/api/v1/events/{id}</code></td><td>事件详情（含原始 raw 字典）</td></tr>
+  <tr><td>POST</td><td><code>/api/v1/events</code></td><td>插入事件（手填 / 第三方系统）</td></tr>
+  <tr><td>DELETE</td><td><code>/api/v1/events/{id}</code></td><td>删除事件</td></tr>
+  <tr><td>POST</td><td><code>/api/v1/events/{id}/breakup-simulate</code></td><td>NASA SBM 解体模拟，返回 ≤500 条碎片状态</td></tr>
+  <tr><td>GET</td><td><code>/api/v1/events/{id}/export?format=cdm|opm|ocm|rdm</code></td><td>导出 CCSDS NDM 文件</td></tr>
+  <tr><td>POST</td><td><code>/api/v1/events/import</code></td><td>导入 CCSDS KVN 文本（自动识别格式）</td></tr>
+</table>
+
+<h3>典型工作流（curl）</h3>
+<pre><code># 1. 创建一次碰撞事件
+curl -X POST http://localhost:8502/api/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{"event_type":"COLLISION","epoch":"2026-04-15T08:30:00Z",
+        "name":"DEMO-COLL","altitude_km":800,"inclination_deg":53,
+        "mass_parent_kg":1500,"mass_target_kg":50,"energy_to_mass":85}'
+# → {"id":1,"ok":true}
+
+# 2. 跑 NASA SBM
+curl -X POST 'http://localhost:8502/api/v1/events/1/breakup-simulate?lc_min_m=0.01&lc_max_m=1&max_fragments=2000'
+# → {"n_total":2000, "n_tracked_ge_10cm":118, "catastrophic":true, ...}
+
+# 3. 导出 CCSDS CDM
+curl 'http://localhost:8502/api/v1/events/1/export?format=cdm' &gt; event_1.cdm
+
+# 4. 把 CDM 导回（往返测试）
+curl -X POST http://localhost:8502/api/v1/events/import \
+  -H 'Content-Type: application/json' \
+  -d "{\"text\": \"$(cat event_1.cdm | jq -Rs .)\"}"
+</code></pre>
+
+<h2>参考文献</h2>
+<ul>
+  <li>Johnson, N. L., Krisko, P. H., Liou, J.-C., Anz-Meador, P. (2001).
+      <em>NASA's New Breakup Model of EVOLVE 4.0</em>. Adv. Space Res. 28(9), 1377-1384.</li>
+  <li>NASA-STD-8719.14B (2019). <em>Process for Limiting Orbital Debris</em>.</li>
+  <li>CCSDS 508.0-B-1 (2013). <em>Conjunction Data Message — Recommended Standard</em>.</li>
+  <li>CCSDS 502.0-B-3 (2023). <em>Orbit Data Messages — Recommended Standard</em>.</li>
+  <li>CCSDS 508.1-B-1 (2019). <em>Re-entry Data Message — Recommended Standard</em>.</li>
+  <li>ESA DISCOSweb (https://discosweb.esoc.esa.int/) — Fragmentation Events Database.</li>
+  <li>Space-Track / USSPACECOM 18 SDS — CDM Public API.</li>
+</ul>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

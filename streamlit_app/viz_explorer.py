@@ -2906,6 +2906,23 @@ def _render_mission_slider():
     else:
         st.info(f"T+{t_slider}s 附近 {rad:.0f} km 内暂无目标（超出 DB 覆盖窗口或高度过低）。")
 
+    # ── ORDEM 3.1 sub-trackable (1–10 cm) micro-debris overlay ─────────────
+    try:
+        from streamlit_app.ordem_microdebris import render_microdebris_panel
+        # Use rocket's instantaneous orbital inclination (≈ launch_az_deg if
+        # in nominal phase; for coast we don't have it precisely so reuse
+        # az as a proxy when available)
+        _inc_proxy = float(st.session_state.get("ms_az", 53.0))
+        render_microdebris_panel(
+            alt_km=float(disp_alt_km),
+            inc_deg=_inc_proxy,
+            half_thickness_km=max(20.0, float(rad) / 10.0),
+            n_sample=600,
+            key_prefix=f"micro_rocket_T{int(t_slider)}",
+        )
+    except Exception as _exc:
+        st.caption(f"_ORDEM 微小碎片面板加载失败：{_exc}_")
+
 
 # ─── Tab 5: 发射趋势 ──────────────────────────────────────────────────────────
 

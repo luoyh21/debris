@@ -40,12 +40,15 @@
     <a href="/docs/modules/collision">碰撞风险评估</a>
     <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
     <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/avoidance">规避策略生成器</a>
+    <a href="/docs/modules/events">太空事件管理</a>
     <a href="/docs/modules/longterm">长期风险评估</a>
     <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
     <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
     <a href="/docs/modules/ai">AI 助手</a>
     <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
     <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+    <a href="/docs/modules/validation">算法正确性验证</a>
 
     <div class="toc-section">API 接口</div>
     <a href="/docs/api">API 使用指南</a>
@@ -62,7 +65,7 @@
 
 <h1>空间碎片监测与发射碰撞风险评估系统</h1>
 <p>本系统是一套面向航天发射任务规划人员和空间碎片研究人员的<strong>全链路空间态势感知平台</strong>。从数据采集、轨道预报，到碰撞风险评估和发射窗口优化，提供端到端的决策支持。</p>
-<p>系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong> 五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库 与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；同时提供 8 个交互式功能页面和 6 个 REST API 接口。</p>
+<p>系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong> 五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库 与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；同时提供 10 个交互式功能页面（含规避策略 + 太空事件管理）和 19 个 REST API 接口（含数据源管理与太空事件管理）。</p>
 
 <h2>核心功能一览</h2>
 <div class="cards">
@@ -89,6 +92,14 @@
   <a href="/docs/modules/collision" class="card" style="text-decoration:none;color:inherit">
     <h4>碰撞风险评估</h4>
     <p>对发射全过程逐阶段计算碰撞概率 (Pc)，四级风险预警 + 规避建议。</p>
+  </a>
+  <a href="/docs/modules/avoidance" class="card" style="text-decoration:none;color:inherit">
+    <h4>规避策略生成器</h4>
+    <p>对高风险合取事件给出三类机动方案：<strong>B 平面解析脉冲</strong> / <strong>持续小推力 SCP</strong> / <strong>上升段时空走廊 + MPC</strong>，输出 ΔV、推进剂、修正轨迹。</p>
+  </a>
+  <a href="/docs/modules/events" class="card" style="text-decoration:none;color:inherit">
+    <h4>太空事件管理</h4>
+    <p>融合 ESA DISCOS / Space-Track CDM 与本地手填事件，<strong>NASA SBM</strong> 解体模拟生成碎片云，<strong>CCSDS CDM/OPM/OEM/OCM/RDM</strong> 标准导入导出。</p>
   </a>
   <a href="/docs/modules/longterm" class="card" style="text-decoration:none;color:inherit">
     <h4>长期风险评估</h4>
@@ -134,7 +145,7 @@
 
 <div class="feature">
   <h4>🔰 我是任务规划人员</h4>
-  <p>推荐流程：<a href="/docs/modules/simulation">轨迹仿真</a> → <a href="/docs/modules/collision">碰撞风险评估</a> → <a href="/docs/modules/lcola">LCOLA 飞越筛选</a></p>
+  <p>推荐流程：<a href="/docs/modules/simulation">轨迹仿真</a> → <a href="/docs/modules/collision">碰撞风险评估</a> → <a href="/docs/modules/avoidance">规避策略生成器</a> → <a href="/docs/modules/lcola">LCOLA 飞越筛选</a></p>
   <p>先模拟火箭发射轨迹，再评估固定时刻的碰撞风险，最后扫描发射窗口找到安全发射时刻。</p>
 </div>
 

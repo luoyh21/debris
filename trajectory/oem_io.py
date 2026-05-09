@@ -100,15 +100,24 @@ class OEMState:
 
 @dataclass
 class OEMSegment:
-    """One logical segment (one META block + its data)."""
+    """One logical segment (one META block + its data).
+
+    Extra optional fields (``useable_*_time``, ``comments``,
+    ``ref_frame_epoch``) are honoured by :func:`write_oem` and improve
+    compatibility with STK / GMAT / Orekit ingestors.
+    """
     object_name:  str   = "UNKNOWN"
     object_id:    str   = "0000-000A"
     center_name:  str   = "EARTH"
     ref_frame:    str   = "J2000"
+    ref_frame_epoch: Optional[datetime] = None     # only meaningful for TOD/TDR
     time_system:  str   = "UTC"
     interpolation:      str = "LAGRANGE"
     interp_degree:      int = 7
+    useable_start_time: Optional[datetime] = None
+    useable_stop_time:  Optional[datetime] = None
     phase_comment:      str = ""
+    comments:           List[str] = field(default_factory=list)
     states: List[OEMState] = field(default_factory=list)
 
     @property
@@ -162,14 +171,23 @@ def write_oem(
         lines.append(f"OBJECT_ID            = {seg.object_id}")
         lines.append(f"CENTER_NAME          = {seg.center_name}")
         lines.append(f"REF_FRAME            = {seg.ref_frame}")
+        if seg.ref_frame_epoch is not None:
+            lines.append(f"REF_FRAME_EPOCH      = {_fmt_epoch(seg.ref_frame_epoch)}")
         lines.append(f"TIME_SYSTEM          = {seg.time_system}")
         lines.append(f"START_TIME           = {_fmt_epoch(seg.start_time)}")
+        if seg.useable_start_time is not None:
+            lines.append(f"USEABLE_START_TIME   = {_fmt_epoch(seg.useable_start_time)}")
+        if seg.useable_stop_time is not None:
+            lines.append(f"USEABLE_STOP_TIME    = {_fmt_epoch(seg.useable_stop_time)}")
         lines.append(f"STOP_TIME            = {_fmt_epoch(seg.stop_time)}")
         lines.append(f"INTERPOLATION        = {seg.interpolation}")
         lines.append(f"INTERPOLATION_DEGREE = {seg.interp_degree}")
         lines.append("META_STOP")
         lines.append("")
 
+        for cmt in (seg.comments or []):
+            for sub in str(cmt).splitlines() or [""]:
+                lines.append(f"COMMENT {sub}")
         if seg.phase_comment:
             lines.append(f"COMMENT {seg.phase_comment}")
 

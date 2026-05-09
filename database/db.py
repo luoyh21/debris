@@ -104,3 +104,38 @@ def init_db():
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         conn.commit()
     Base.metadata.create_all(engine)
+    _seed_default_priorities()
+
+
+# Default source priorities (lower number = wins on conflict).  These match
+# the order historically used in v_unified_objects (Space-Track > UCS > ESA).
+DEFAULT_SOURCE_PRIORITIES = [
+    ("Space-Track", 10, "Space-Track GP catalogue (NORAD primary)", False),
+    ("UCS",         20, "Union of Concerned Scientists Satellite Database", False),
+    ("ESA-DISCOS",  30, "ESA DISCOSweb in-orbit object registry", False),
+    ("GCAT",        40, "Jonathan McDowell GCAT (history aggregates)", False),
+    ("UNOOSA",      50, "UN OOSA registered objects", False),
+    ("Asterank",    60, "Asterank asteroid / NEO catalogue", False),
+    ("TechPort",    70, "NASA TechPort projects", False),
+]
+
+
+def _seed_default_priorities() -> None:
+    """Insert default rows into datasource_priority if missing.
+
+    User-edited priorities are preserved (ON CONFLICT DO NOTHING).
+    """
+    try:
+        with get_engine().begin() as conn:
+            for source, prio, desc, user in DEFAULT_SOURCE_PRIORITIES:
+                conn.execute(
+                    text(
+                        "INSERT INTO datasource_priority "
+                        "(source, priority, description, is_user_defined, updated_at) "
+                        "VALUES (:s, :p, :d, :u, NOW()) "
+                        "ON CONFLICT (source) DO NOTHING"
+                    ),
+                    {"s": source, "p": prio, "d": desc, "u": user},
+                )
+    except Exception as exc:
+        _log.warning("seeding datasource_priority failed: %s", exc)

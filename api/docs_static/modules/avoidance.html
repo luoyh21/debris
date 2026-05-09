@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>规避策略生成器 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/avoidance" class="active">规避策略生成器</a>
+    <a href="#impulsive" class="sub">脉冲（B 平面）</a>
+    <a href="#low-thrust" class="sub">持续小推力（SCP）</a>
+    <a href="#ascent"     class="sub">上升段（走廊+MPC）</a>
+    <a href="/docs/modules/events">太空事件管理</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/validation">算法正确性验证</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>规避策略生成器</h1>
+<p><span class="tag tag-scene">场景</span> 在<strong>碰撞风险评估</strong>检出高风险合取事件后，自动给出可执行的规避机动方案：从化学脉冲、电推持续燃烧到上升段时空走廊三类推进/相位场景。</p>
+
+<div class="info-box">
+  ⚡ <strong>前置条件：</strong>需要先运行 <a href="/docs/modules/simulation">轨迹仿真</a> 与 <a href="/docs/modules/collision">碰撞风险</a>，页面自动从 session 读取最严重事件；也可手动输入 TCA 与最近距离。
+</div>
+
+<h2>三类推进 / 相位场景对比</h2>
+<table>
+  <tr><th>方案</th><th>推进类型</th><th>核心算法</th><th>典型 ΔV</th><th>响应时间</th><th>适用场景</th></tr>
+  <tr>
+    <td><strong>① 脉冲</strong></td>
+    <td>化学（高推力）</td>
+    <td>B 平面解析 + Lagrange 乘子</td>
+    <td>0.1 – 50 m/s</td>
+    <td><1 s</td>
+    <td>预警生成 → 数小时内紧急规避</td>
+  </tr>
+  <tr>
+    <td><strong>② 持续小推力</strong></td>
+    <td>电推（Hall / 离子）</td>
+    <td>序列凸规划（SCP）单次迭代 / SOCP-lite</td>
+    <td>0.05 – 5 m/s</td>
+    <td><10 s</td>
+    <td>预警 1 天以上、燃料受限的长寿命任务</td>
+  </tr>
+  <tr>
+    <td><strong>③ 上升段走廊</strong></td>
+    <td>方位角 / 俯仰程序</td>
+    <td>时空可行驶走廊 + MPC 一步</td>
+    <td>等效 100 – 500 m/s</td>
+    <td>1 Hz 闭环</td>
+    <td>火箭穿越密集碎片带，气动 / 结构 / 重力转向严约束</td>
+  </tr>
+</table>
+
+<h2 id="impulsive">① 脉冲规避（B 平面解析法）</h2>
+
+<p>B 平面是与相对速度 <code>v_rel</code> 垂直的平面，在该平面上的位置矢量即「错失距离矢量」。</p>
+
+<p>正交基（Öpik 约定）：</p>
+<pre><code>η̂  = v_rel / |v_rel|             (B 平面法向)
+ζ̂  = (v_rel × h_pri) / |·|       (B 平面 down-track)
+ξ̂  = ζ̂ × η̂                       (B 平面 cross-track)</code></pre>
+
+<p>HCW 状态转移矩阵给出 <em>ΔV → TCA 时刻位置偏移</em> 的线性敏感度：</p>
+<pre><code>Δr_TCA(ECI) ≈  R_LVLH→ECI · Φ_rv(Δt) · R_LVLH→ECIᵀ · Δv_ECI
+
+其中 Δt = TCA − t_man</code></pre>
+
+<p>把 3D 位置偏移投影到 B 平面 (ξ̂, ζ̂)：<code>(Δξ, Δζ) = P · J · Δv</code>，
+则在 <code>‖Δv‖ ≤ Δv_max</code> 约束下：</p>
+
+<pre><code>max  ‖P J Δv‖²   s.t.  ‖Δv‖ ≤ Δv_max
+↓ Lagrange 乘子
+Δv* = Δv_max · v₁(SVD(M))      M = P · J</code></pre>
+
+<p>主右奇异向量 v₁ 即最优方向；符号选择保证 <em>错失距离朝增大方向</em>。
+推进剂消耗按 Tsiolkovsky 反推：<code>m_p = m₀(exp(|Δv|/v_e) − 1)</code>，<code>v_e = Isp · g₀</code>。</p>
+
+<div class="info-box">
+  💡 <strong>解析法的优势：</strong>毫秒级返回首选机动方案，<strong>无须迭代</strong>，特别适合在防撞预警生成后的应急响应窗口（数十秒至数分钟）。受限于 J2 等扰动忽略，建议结合高精度数值外推做二次校核。
+</div>
+
+<h2 id="low-thrust">② 持续小推力（SCP / SOCP-lite）</h2>
+
+<p>电推系统推力幅值 ≪ 化学推进，但作用时长远超脉冲。把推力建模为 LVLH 系常值加速度 <code>α</code>，敏感度变为 Φ_rv 在燃烧窗口的积分：</p>
+
+<pre><code>B(T)  =  ∫₀ᵀ Φ_rv(T − τ) dτ          (32 点 Gauss 数值积分)
+Δr_TCA  ≈  R · B(T) · Rᵀ · α
+‖α‖    ≤  T_thrust / m_avg   (推力上限)</code></pre>
+
+<p>线性化后凸优化目标完全等价于 B 平面情形：</p>
+<pre><code>max ‖P · B · α‖²    s.t.  ‖α‖ ≤ T_thrust / m</code></pre>
+
+<p>一次迭代即收敛于线性解（SOCP-lite）；对于多目标 / 多碎片场景，把不同事件的 <code>P_i · B_i</code>
+堆叠为多约束二阶锥规划即为完整 SCP，通常 3 – 5 次迭代收敛。</p>
+
+<h2 id="ascent">③ 上升段时空走廊 + MPC</h2>
+
+<p>火箭上升段必须遵守气动载荷（Q-α 包络）、结构强度、重力转向轨迹等严约束。可用控制只剩两个连续量：</p>
+
+<ul>
+  <li><strong>Δaz</strong>：发射方位微调</li>
+  <li><strong>Δθ</strong>：俯仰程序偏置</li>
+</ul>
+
+<p>它们对 TCA 时刻位置的一阶敏感度为：</p>
+
+<pre><code>∂(lateral) / ∂Δaz   ≈   |v| · (T_TCA − t_man) · π/180
+∂(radial)  / ∂Δθ    ≈   ½ |v| · (T_TCA − t_man) · π/180</code></pre>
+
+<p>把<em>碎片云膨胀边界</em>投影成时变时空矩形，构造一维线性规划：</p>
+
+<pre><code>max miss   s.t.   |Δaz| ≤ Δaz_max,  |Δθ| ≤ Δθ_max</code></pre>
+
+<p>实时引导可在地面遥测 1 Hz 周期上滚动重解，构成 <strong>MPC 闭环</strong>；本工程实现给出第一迭代解析解，便于离线策略评估与可视化。</p>
+
+<h2>页面交互流程</h2>
+<ol class="steps">
+  <li>页面打开后自动从 session 读取「碰撞风险」最严重事件，或允许手动输入 TCA、最近距离、|v_rel|；</li>
+  <li>选择σ（位置不确定度）与 HBR（联合硬体半径）；</li>
+  <li>三个 Tab 各自有专属参数（ΔV 预算、Isp、点火提前量、推力、燃烧时长、走廊宽度等）；</li>
+  <li>每个 Tab 自动给出：ΔV 矢量、修正后错失距离与 Pc、推进剂消耗、3D 轨迹对比图（原 vs 规避后）；</li>
+  <li>页面末尾「三种规避方案对比」表横向展示三类机动指标，方便决策。</li>
+</ol>
+
+<h2>输出指标</h2>
+<table>
+  <tr><th>指标</th><th>说明</th></tr>
+  <tr><td>错失距离前 / 后</td><td>当前与机动后预测的 TCA 错失距离 (m)</td></tr>
+  <tr><td>Pc 前 / 后</td><td>Foster Pc（各向同性 σ + HBR），机动前后</td></tr>
+  <tr><td>风险下降倍数</td><td>Pc 前 / Pc 后</td></tr>
+  <tr><td>|ΔV|</td><td>机动总 ΔV (m/s)；持续推力情形为 |a| · T</td></tr>
+  <tr><td>推进剂</td><td>由 Tsiolkovsky 推算 (kg)</td></tr>
+  <tr><td>3D 轨迹</td><td>原轨迹（虚线）vs 规避后轨迹（实线），点火点 / TCA 标注</td></tr>
+</table>
+
+<h2>调用方式（Python）</h2>
+<pre><code>from avoidance import (
+    inputs_from_event,
+    optimal_impulsive_dv,
+    design_low_thrust_burn,
+    design_ascent_correction,
+)
+
+inp = inputs_from_event(event, sim_result, sigma_combined_km=1.5, hbr_km=0.02)
+
+sol1 = optimal_impulsive_dv(inp,  dv_budget_kms=0.005, maneuver_lead_s=900)
+sol2 = design_low_thrust_burn(inp, burn_duration_s=600, thrust_N=1.0,
+                                spacecraft_mass_kg=4500, isp_s=3000)
+sol3 = design_ascent_correction(inp, t_launch_s=0.0,
+                                  max_dazimuth_deg=3.0, max_dpitch_deg=1.0)
+
+print(sol1.dv_mag_kms, sol1.miss_after_km, sol1.pc_after, sol1.propellant_kg)</code></pre>
+
+<h2>参考文献</h2>
+<ul>
+  <li>Öpik, E. J. (1976). <em>Interplanetary Encounters</em>. Elsevier — B 平面定义</li>
+  <li>Foster, J. L. &amp; Estes, H. S. (1992). <em>A Parametric Analysis of Orbital Debris Collision Probability</em>. NASA TM-104825</li>
+  <li>Bombardelli, C. (2014). Analytical Formulation of Impulsive Collision Avoidance Dynamics. <em>Celest. Mech. Dyn. Astron.</em>, 119(2)</li>
+  <li>Açıkmeşe, B. &amp; Ploen, S. (2007). Convex Programming Approach to Powered Descent Guidance for Mars Landing. <em>JGCD</em>, 30(5) — SCP / SOCP 起点</li>
+  <li>Wang, Z. &amp; Grant, M. J. (2017). Constrained Trajectory Optimization for Planetary Entry via Sequential Convex Programming. <em>JGCD</em>, 40(10)</li>
+</ul>
+
+</div>
+<script src="/docs/toc.js"></script>
+</body>
+</html>

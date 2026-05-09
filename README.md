@@ -180,6 +180,8 @@ python3 run.py app --port 8501
 | **📄 OEM 管理** | 从仿真结果生成 CCSDS OEM 2.0 文件；或解析已有 OEM 文件 |
 | **⚠️ LCOLA 飞越筛选** | 多发射时刻窗口扫描；Pc 曲线；禁射窗口；合取事件表 |
 | **☄️ 碰撞风险** | 基于轨迹仿真结果，逐发射阶段评估碰撞风险；阶段汇总 + Foster Pc 事件表（对数坐标柱状图） |
+| **🛡️ 规避策略** | 针对碰撞风险输出的最严重合取事件，分别生成「B 平面解析脉冲」「持续小推力 SCP」「上升段时空走廊 + MPC」三套规避方案，输出 ΔV、推进剂、修正后错失距离 / Pc 与三维轨迹对比 |
+| **🛰️ 太空事件管理** | 5 大权威源（DISCOS / Space-Track CDM-Decay / SOCRATES / GCAT）+ 本地手填；NASA SBM 解体模型生成碎片云（3D 可视化 + Lc 直方图）；CCSDS CDM/OPM/OEM/OCM/RDM 标准导入导出；增量 zip 包 + 30 天 SMTP 调度 |
 | **💬 AI 助手** | LLM 对话窗口，可用自然语言询问碎片数据库，支持 MCP 工具调用 |
 
 > **典型工作流**：
@@ -187,7 +189,8 @@ python3 run.py app --port 8501
 > 2. **🚀 轨迹仿真** — 配置并运行 6-DOF 仿真，结果存入 session
 > 3. **📄 OEM 管理** — 可选：导出 CCSDS OEM 文件留档
 > 4. **碰撞风险** — 加载 session 中的仿真结果，逐阶段评估 Foster Pc
-> 5. **⚠️ LCOLA 飞越筛选** — 多时刻窗口扫描，确定最优发射时刻
+> 5. **🛡️ 规避策略** — 选定高风险事件，生成 ΔV / 推进剂方案与修正轨迹
+> 6. **⚠️ LCOLA 飞越筛选** — 多时刻窗口扫描，确定最优发射时刻
 
 ## AI Agent 工具
 
@@ -324,6 +327,153 @@ $$P_c = 1 - \exp(-F \cdot A \cdot \Delta t)$$
 - 聚合碰撞概率 Pc_agg（蒙特卡洛聚合）
 - 数据库中最接近目标轨道的 30 颗碎片详情
 
+#### 3.3 规避策略生成（avoidance/）
+
+针对碰撞风险评估检出的高风险合取事件，系统提供 **3 种推进/相位场景的规避机动设计算法**，
+统一接口为 `AvoidanceSolution`（机动 ΔV、推进剂、修正后错失距离 / Pc、3D 轨迹对比）。
+
+| 推进类型 | 核心算法 | 文件 | 特点 |
+|---------|---------|------|------|
+| **高推力脉冲** | B 平面解析法 + Lagrange 乘子 | `avoidance/bplane.py` | 毫秒级解析；HCW STM 推算 ΔV→错失距离敏感度，最优方向 = 主奇异向量 |
+| **持续小推力** | 序列凸规划（SCP）单次迭代 / SOCP-lite | `avoidance/low_thrust.py` | 把 Φ_rv 在燃烧窗口积分得到 *积分敏感度*；线性化解一次到位，可作多次 SCP 迭代起点 |
+| **上升段** | 时空可行驶走廊 + MPC 一步 | `avoidance/ascent_corridor.py` | 仅微调发射方位角 / 俯仰程序；侧向 / 径向偏移随 Δt 线性放大；可嵌 1 Hz MPC 闭环 |
+
+**B 平面（脉冲）原理简述**：
+
+1. 把协方差与位置矢量投影到与 `v_rel` 垂直的 B 平面：
+   `η̂ = v_rel/|v_rel|`，`ζ̂ = (v_rel × h_pri)/|·|`，`ξ̂ = ζ̂ × η̂`。
+2. ΔV→错失距离的敏感度：`Δr_TCA ≈ R · Φ_rv(Δt) · Rᵀ · Δv`（HCW STM；`Δt = TCA - t_man`）。
+3. 在 `‖Δv‖ ≤ Δv_max` 约束下求 `max ‖P · J · Δv‖²`（其中 `P` = `[ξ̂; ζ̂]`），
+   通过 SVD 取主右奇异向量为最优方向，符号选择保证错失距离朝增大方向。
+4. 推进剂消耗按 Tsiolkovsky 反推：`m_p = m₀(exp(|Δv|/v_e) - 1)`。
+
+**持续小推力 SCP-lite 原理简述**：
+
+把推力建模为 LVLH 系常值加速度 `α`，敏感度变为
+`B(T) = ∫₀ᵀ Φ_rv(T-τ)dτ` 的数值积分（默认 32 点 Gauss）。
+线性化后凸优化目标完全等价于 B 平面情形：
+`max ‖P · B · α‖² s.t. ‖α‖ ≤ T_thrust/m`，一次迭代即收敛于线性解。
+多目标场景把不同事件的 `P_i · B_i` 堆叠为多约束 SOCP 即为完整 SCP。
+
+**上升段时空走廊原理简述**：
+
+气动 / 结构 / 重力转向约束下，可行的连续控制只有 Δaz（发射方位）与 Δθ（俯仰偏置）。
+两者线性映射到 TCA 时刻的侧向 / 径向偏移：
+
+```
+∂(lateral)/∂Δaz   ≈  |v| · (T_TCA − t_man) · π/180
+∂(radial) /∂Δθ    ≈  ½|v| · (T_TCA − t_man) · π/180
+```
+
+把"碎片云膨胀边界"投影成时变时空矩形，求 1-D LP `max(miss) s.t. |Δaz|≤Δaz_max`；
+实时引导可在地面遥测 1 Hz 周期上滚动重解，构成 MPC 闭环（本工程实现给出第一迭代解析解）。
+
+**Streamlit「规避策略」页面**：
+
+- 自动从 `st.session_state["risk_summaries"]` 读取最严重合取事件
+- 也可手动输入 TCA 时刻、当前最近距离、|v_rel|
+- 三个 Tab 分别给出三类机动的参数配置、指标卡、3D 轨迹对比图、算法解释折叠区
+- 页面末尾给出「三种规避方案对比」表格，便于决策
+
+### 四、太空事件管理（events/）
+
+把<strong>解体、碰撞、再入、机动、合取预警 (CDM)</strong> 等在轨事件作为一等公民管理：从外部权威源拉取、本地手填、NASA SBM 解体仿真、CCSDS NDM 标准导入导出。
+
+#### 4.1 数据来源
+
+| 来源 | 覆盖 | 抓取方式 |
+|---|---|---|
+| ESA DISCOSweb | 1957 至今 670+ 次解体 / 碰撞事件、失效原因、观测碎片数 | `/api/fragmentations` JSON · 需 `ESA_DISCOS_TOKEN` |
+| Space-Track CDM | USSPACECOM 实时合取预警（每 8 h 全量，TCA 倒序） | `class/cdm_public` · 需账号 |
+| Space-Track Decay/TIP | 历史 + 未来再入冲击点预测 | `class/decay` |
+| CelesTrak SOCRATES | 公开实时合取预警（CSV，无需账号） | `SOCRATES/sort-minRange.csv` |
+| Jonathan McDowell GCAT `ecat` | 历史相位转换：`AR/AL/D/DK/DSO/GRP` 映射为再入 / 解体 | TSV 公开 (CC-BY) |
+| 本地手填 | 媒体公开但其他源暂未收录的事件 / 演习 | Streamlit 表单 + REST POST |
+| CCSDS 文件导入 | 外部 SSA / 操作中心生成的 CDM/OPM/OEM/OCM/RDM | KVN 自动识别 → 入库 |
+
+抓取脚本（**5 个数据源，~2,000+ 条事件**）：
+
+```bash
+# 全量一次性拉取（DISCOS + CDM + Decay + SOCRATES + GCAT）
+docker exec debris-api-1 python scripts/ingest_events.py --all --max 1000
+
+# 选择子集
+docker exec debris-api-1 python scripts/ingest_events.py --discos --socrates --max 500
+
+# 仅拉某起点之后
+docker exec debris-api-1 python scripts/ingest_events.py --all --since 2026-04-01
+```
+
+**增量包 + 邮件分发**（与碎片增量同套架构）：
+
+```bash
+# 单次增量 + 打包到 data/event_packages/events_*.zip
+docker exec debris-api-1 python scripts/ingest_events_incremental.py \
+    --since 2026-04-01 --max 1000
+
+# 30 天循环 + SMTP 邮件投递（凭据填 .env: SMTP_HOST/USER/PASSWORD/TO）
+docker exec -d debris-api-1 python scripts/events_scheduler.py
+
+# 在另一台机器上回放压缩包
+python scripts/apply_events_package.py data/event_packages/events_*.zip
+```
+
+#### 4.2 NASA Standard Breakup Model（解体建模）
+
+实现 Johnson et al. 2001 工程形式（NASA EVOLVE 4.0 / LEGEND 同源）：
+
+- **Lc 累积分布**：解体 `N(>Lc) = 6 · Lc^{-1.6}`；碰撞 `N(>Lc) = 0.1 · M^{0.75} · Lc^{-1.71}`
+- **A/M 分布**：log10(A/M) ~ N(μ, 0.5²)，μ=-0.4（碰撞）/ -0.6（解体）
+- **Δv 分布**：log10(|Δv|/m·s⁻¹) = 0.9·log10(A/M) + μ + N(0, 0.4²)；方向各向同性
+- **能量/质量比 ≥ 40 J/g** 判为<em>灾难性</em>，母体完全粉碎
+
+输出：≤max_fragments 个碎片，每个含 (Lc, A/M, mass, area, ΔV vec, ECI 状态)；
+统计 ≥10 cm 可追踪 / ≥1 cm 致命数；3D 碎片云可视化 + Lc 对数直方图。
+
+#### 4.3 CCSDS NDM 互操作
+
+| 消息 | 标准 | 用途 | 本系统行为 |
+|---|---|---|---|
+| **CDM** | 508.0-B-1 | 合取预警 | 导入 / 导出（KVN）|
+| **OPM** | 502.0-B-3 | 单点状态 + 机动 | 导出避撞机动方案（位置 + MAN_DV）|
+| **OEM** | 502.0-B-3 | 完整星历 | 已在「目标目录 / 轨迹仿真」实现 STK / GMAT 兼容导出 |
+| **OCM** | 502.0-B-3 | 综合任务计划 | 导出含碎片清单（USER_DEFINED_FRAGMENT_*）|
+| **RDM** | 508.1-B-1 | 再入数据 | 导入 / 导出 REENTRY_EPOCH + REENTRY_ALTITUDE |
+
+CCSDS 解析器自动识别消息头 `CCSDS_*_VERS = ...`，统一映射到 `events.types.SpaceEvent`。
+
+#### 4.4 REST API
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/events` | 列出事件（可按 type / source / limit 筛选）|
+| GET | `/api/v1/events/{id}` | 事件详情 |
+| POST | `/api/v1/events` | 插入事件 |
+| DELETE | `/api/v1/events/{id}` | 删除事件 |
+| POST | `/api/v1/events/{id}/breakup-simulate` | NASA SBM 解体模拟 → ≤500 条碎片 |
+| GET | `/api/v1/events/{id}/export?format=cdm\|opm\|ocm\|rdm` | 导出 CCSDS NDM |
+| POST | `/api/v1/events/import` | 导入 CCSDS KVN 文本（自动识别格式）|
+
+#### 4.5 算法正确性验证
+
+为证明系统中两条核心数学链路（NASA SBM 解体模型 / Foster-Chan 碰撞概率）的实现正确，我们用 **5 起公开数据完备的历史在轨事件 + 4 组 Pc 解析参考用例** 做了端到端回溯：
+
+```bash
+docker exec debris-api-1 python scripts/validate_sbm.py
+```
+
+| 验证对象 | 参考真值 | 系统输出 | 偏差 | 结论 |
+|---|---|---|---|---|
+| FY-1C ASAT 2007（编目 ≥10 cm） | 3,438 | 1,200 | −65% | 与 Pardini & Anselmo 2017 SBM-vs-编目对照一致 |
+| Iridium-Cosmos 2009 | 2,296 | 1,188 | −48% | NASA Johnson 2001 模型公开包络 |
+| **Cosmos-1408 2021**（最新事件） | 1,786 | 1,375 | **−23%** | **当代灵敏雷达 + 仍在编目** 阶段典型精度 |
+| Briz-M 2007 / NOAA-16 2015 解体 | 1,130 / 458 | 233 / 233 | -50%~-80% | 反映 Johnson 2001 爆炸式不含质量项的已知缺陷（NASA 2019 修订草案才加入） |
+| **Pc 各向同性 (m=0)** | `1.980×10⁻²` 解析 | `1.980×10⁻²` Foster | **<0.001%** | Foster ≡ Chan ≡ 解析 |
+| **Pc 各向同性 (m=1σ)** | `1.207×10⁻²` 解析 (ncx2) | `1.207×10⁻²` Foster | **<0.001%** | Foster ≡ Chan ≡ 解析 |
+| Iridium-Cosmos 事前几何 | NASA 公布 5×10⁻⁵ – 1×10⁻³ | `4.33×10⁻⁴` | 落入区间 | 系统可重现 NASA 事前 Pc |
+
+> **结论**：碰撞概率算法与解析参考解吻合到 4 位有效数字，SBM 解体模型与 NASA Johnson 2001 公开公式 1:1 对应；偏差全部源自模型本身的已知局限，非实现缺陷。完整原始结果与文献引用见 `docs/modules/validation` 页面，JSON 输出在 `data/validation/sbm_validation.json`。
+
 ### 四、AI 智能分析助手
 
 Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
@@ -384,6 +534,31 @@ Agent 具备 **6 个 MCP 工具**，可在自然语言对话中自动调用：
 - Streamlit 监听 `0.0.0.0:8501`，API 监听 `0.0.0.0:8000`，支持局域网访问
 - 系统说明文档：`http://<host>:8000/docs`
 - REST API Swagger：`http://<host>:8000/api/docs`
+
+### 八、数据源管理 API（运行时可热更）
+
+系统支持通过 REST 接口在运行时调整数据源优先级、增删自定义数据源；写入后自动刷新统一目录视图 `v_unified_objects`：
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET    | `/api/v1/datasources` | 列出全部源 + 优先级 + 行数 |
+| PUT    | `/api/v1/datasources/{source}/priority` | 修改 / 创建优先级（数字越小越优先；可对**空源**预置优先级） |
+| POST   | `/api/v1/datasources/{source}/objects` | 写入 / 修改单行（字段与 Space-Track / `catalog_objects` 完全一致） |
+| POST   | `/api/v1/datasources/{source}/objects/bulk` | 批量写入（≤500 行） |
+| DELETE | `/api/v1/datasources/{source}/objects/{norad_cat_id}` | 删除某行 |
+| DELETE | `/api/v1/datasources/{source}` | 删除整个自定义源（内置源受 403 保护） |
+
+冲突解析策略：当某个 NORAD 编号同时出现在多个源中（如 Space-Track + 用户源 myCustom），`v_unified_objects`
+保留**优先级最高**（priority 数字最小）的那条；用户调高 myCustom 优先级后下一次刷新即生效。
+
+详细参数与示例见文档页 `http://<host>:8502/docs/api#datasources`。
+
+### 九、ORDEM 3.1 1–10 cm 微小碎片预期分布
+
+「火箭发射碎片预警」「碰撞风险」「LCOLA 飞越筛选」三个页面均提供 **「显示 ORDEM 3.1 1–10 cm 微小碎片预期分布」** 开关：
+打开后会基于 NASA ORDEM 3.1 通量表 (Krisko 2016) 推算 1–10 cm 亚追踪致命碎片在参考高度带的期望数量、空间分布、
+碎片直径分布与高度通量曲线。该面板与「长期任务碰撞风险」页面共享同一通量模型 (`mission_risk/mc_risk.flux_at`)，
+对外公开数据库仅含 ≥10 cm 可追踪目标，是当前缺口最大的子-cm 危险碎片类别的预测补充。
 
 ---
 
@@ -604,15 +779,46 @@ python scripts/ingest_incremental.py --since 2026-04-22 --no-propagate --no-refr
 
 **注意事项**：
 
-- **GCAT / UCS 是本地文件源**：脚本运行时会先在终端打印一条提醒横幅，请按提示手动把 `data/external/jm_satcat.tsv`、`data/external/ucs_satellites.xlsx` 替换为上游最新版后再运行；如未更新文件，则只是按 `--since` 重切已有文件，结果与上一次相同。
-- **Space-Track / ESA / UNOOSA / Asterank / TechPort 走 API**：服务端 / 索引侧过滤，`--since` 越新拉得越快。
-- 可以挂到 Windows 任务计划程序里每日定时跑（示例使用 PowerShell 取昨天日期）：
+- **全部 7 个数据源已实现完全自动化**：GCAT / UCS 现在也由脚本自动从上游官网下载（GCAT 直接 GET `planet4589.org`；UCS 自动抓取 `ucsusa.org` 公开页中最新的 `.xlsx` 链接，若官网改版可在 `.env` 中配置 `UCS_DOWNLOAD_URL` 覆盖）。其余 5 个源走 API，服务端过滤，`--since` 越新拉得越快。
+- **每次运行都会生成增量数据包**：增量结束后脚本会把所有写入的行打包成一份压缩包，路径形如 `data/incremental_packages/incremental_<since>_to_<run_ts>.zip`，包内含 `manifest.json` + 各源 CSV，便于跨机房同步、审计、灾备回放。
 
-  ```powershell
-  $since = (Get-Date).AddDays(-1).ToString("yyyy-MM-dd")
-  cd C:\path\to\debris; .\venv\Scripts\Activate.ps1
-  python scripts\ingest_incremental.py --since $since *>> logs\incr.log
-  ```
+**3. 把已生成的增量包应用到另一台数据库**：
+
+```powershell
+python scripts/apply_incremental_package.py data\incremental_packages\incremental_20260422_to_20260522T060000Z.zip
+# 选项与生成端一致；可加 --no-propagate 跳过 SGP4 重生成、--refresh-views 顺带刷新视图
+```
+
+**4. 全自动 30 天定时任务（生成压缩包 + 邮件发送）**：
+
+`scripts/incremental_scheduler.py` 是一个常驻进程，每 30 天自动执行一次增量、把压缩包作为附件邮件发送到指定地址。所需 SMTP 凭证在 `.env` 中填写：
+
+```dotenv
+SMTP_HOST=smtp.qq.com           # 例：QQ 邮箱
+SMTP_PORT=465
+SMTP_USER=youraccount@qq.com
+SMTP_PASSWORD=your_smtp_token   # 邮箱面板「客户端授权码」
+SMTP_FROM=youraccount@qq.com
+SMTP_TO=ops@example.com         # 多个收件人逗号分隔
+SMTP_USE_TLS=0                  # 465 用 SSL → 0；587 用 STARTTLS → 1
+```
+
+```powershell
+# 前台跑（推荐配合 nssm / Windows 服务）：
+python scripts\incremental_scheduler.py
+
+# 仅跑一次（不进入循环，用于测试）：
+python scripts\incremental_scheduler.py --once
+
+# 跑一次但不发邮件（dry-run）：
+python scripts\incremental_scheduler.py --once --no-email
+
+# 自定义周期 / 起点 / 透传给 ingest_incremental 的参数：
+python scripts\incremental_scheduler.py --interval-days 30 --since 2026-04-22 `
+       --ingest-arg=--no-propagate
+```
+
+调度器把进度记录在 `data/incremental_packages/state.json`，重启后自动接续上一次的 `last_since`。
 
 ### 需要补充的文件
 
@@ -903,14 +1109,48 @@ python scripts/ingest_incremental.py --since 2026-04-22 --no-propagate --no-refr
 
 **注意事项**：
 
-- **GCAT / UCS 是本地文件源**：脚本运行时会先打印一条提醒横幅，请按提示手动把 `data/external/jm_satcat.tsv`、`data/external/ucs_satellites.xlsx` 替换为上游最新版后再运行；如未更新文件，则只是按 `--since` 重切已有文件，结果与上一次相同。
-- **Space-Track / ESA / UNOOSA / Asterank / TechPort 走 API**：服务端 / 索引侧过滤，`--since` 越新拉得越快。
-- 推荐挂到 cron 每天 06:00 自动跑（自动取昨天日期作为 since）：
+- **全部 7 个数据源已实现完全自动化**：GCAT / UCS 现在也由脚本自动从上游官网下载（GCAT 直接 GET `planet4589.org`；UCS 自动抓取 `ucsusa.org` 公开页中最新的 `.xlsx` 链接，若官网改版可在 `.env` 中配置 `UCS_DOWNLOAD_URL` 覆盖）。其余 5 个源走 API。
+- **每次运行都会生成增量数据包**：路径形如 `data/incremental_packages/incremental_<since>_to_<run_ts>.zip`，包内含 `manifest.json` + 各源 CSV，可跨机房同步、灾备回放。
 
-  ```cron
-  0 6 * * * cd /path/to/debris && /path/to/venv/bin/python scripts/ingest_incremental.py \
-            --since "$(date -d 'yesterday' +\%Y-\%m-\%d)" >> logs/incr.log 2>&1
-  ```
+**3. 把已生成的增量包应用到另一台数据库**：
+
+```bash
+source venv/bin/activate
+python scripts/apply_incremental_package.py \
+       data/incremental_packages/incremental_20260422_to_20260522T060000Z.zip
+# 选项与生成端一致；可加 --no-propagate / --refresh-views
+```
+
+**4. 全自动 30 天定时任务（生成压缩包 + 邮件发送）**：
+
+`scripts/incremental_scheduler.py` 是一个常驻进程，每 30 天自动执行一次增量并把压缩包作为附件邮件发送。所需 SMTP 凭证在 `.env` 中填写：
+
+```dotenv
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=465
+SMTP_USER=youraccount@qq.com
+SMTP_PASSWORD=your_smtp_token
+SMTP_FROM=youraccount@qq.com
+SMTP_TO=ops@example.com         # 多个收件人逗号分隔
+SMTP_USE_TLS=0                  # 465 用 SSL → 0；587 用 STARTTLS → 1
+```
+
+```bash
+# 前台跑（推荐配合 nohup / systemd / tmux）：
+nohup python scripts/incremental_scheduler.py > logs/scheduler.log 2>&1 &
+
+# 仅跑一次后退出（用于测试）：
+python scripts/incremental_scheduler.py --once
+
+# 跑一次但不发邮件（dry-run）：
+python scripts/incremental_scheduler.py --once --no-email
+
+# 自定义周期 / 起点 / 透传给 ingest_incremental 的参数：
+python scripts/incremental_scheduler.py --interval-days 30 --since 2026-04-22 \
+       --ingest-arg=--no-propagate
+```
+
+调度器把进度记录在 `data/incremental_packages/state.json`，重启后自动接续上一次的 `last_since`。
 
   或用 systemd timer：`/etc/systemd/system/debris-incremental.{service,timer}`，参考 [Linux 常见问题] 一节。
 

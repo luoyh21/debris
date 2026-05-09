@@ -1,0 +1,104 @@
+{
+  "sbm_rows": [
+    {
+      "id": "FY1C-2007",
+      "event": "FY-1C ASAT (2007-01-11)",
+      "type": "COLLISION",
+      "obs_tracked_ge_10cm": 3438,
+      "sbm_theoretical_ge_10cm": 1200,
+      "sbm_sampled_total": 20000,
+      "sbm_tracked_ge_10cm": 389,
+      "sbm_lethal_ge_1cm": 20000,
+      "catastrophic": true,
+      "rel_err_theo_pct": -65.1,
+      "ref": "Pardini & Anselmo 2017; NASA ODQN 28-2 (2024)."
+    },
+    {
+      "id": "IRIDIUM-COSMOS-2009",
+      "event": "Iridium-33 ↔ Cosmos-2251 (2009-02-10)",
+      "type": "COLLISION",
+      "obs_tracked_ge_10cm": 2296,
+      "sbm_theoretical_ge_10cm": 1188,
+      "sbm_sampled_total": 20000,
+      "sbm_tracked_ge_10cm": 389,
+      "sbm_lethal_ge_1cm": 20000,
+      "catastrophic": true,
+      "rel_err_theo_pct": -48.3,
+      "ref": "NASA ODQN 13-2 (Apr 2009); ODQN 26-2 update."
+    },
+    {
+      "id": "COSMOS1408-2021",
+      "event": "Cosmos-1408 ASAT (2021-11-15)",
+      "type": "COLLISION",
+      "obs_tracked_ge_10cm": 1786,
+      "sbm_theoretical_ge_10cm": 1375,
+      "sbm_sampled_total": 20000,
+      "sbm_tracked_ge_10cm": 389,
+      "sbm_lethal_ge_1cm": 20000,
+      "catastrophic": true,
+      "rel_err_theo_pct": -23.0,
+      "ref": "NASA ODQN 26-1 (Mar 2022)."
+    },
+    {
+      "id": "BRIZ-M-2007",
+      "event": "Briz-M propellant tank explosion (2007-02-19)",
+      "type": "FRAGMENTATION",
+      "obs_tracked_ge_10cm": 1130,
+      "sbm_theoretical_ge_10cm": 233,
+      "sbm_sampled_total": 9503,
+      "sbm_tracked_ge_10cm": 245,
+      "sbm_lethal_ge_1cm": 9503,
+      "catastrophic": true,
+      "rel_err_theo_pct": -79.4,
+      "ref": "NASA ODQN 11-2 (Apr 2007), 12-3 update."
+    },
+    {
+      "id": "NOAA16-2015",
+      "event": "NOAA-16 battery explosion (2015-11-25)",
+      "type": "FRAGMENTATION",
+      "obs_tracked_ge_10cm": 458,
+      "sbm_theoretical_ge_10cm": 233,
+      "sbm_sampled_total": 9503,
+      "sbm_tracked_ge_10cm": 245,
+      "sbm_lethal_ge_1cm": 9503,
+      "catastrophic": true,
+      "rel_err_theo_pct": -49.1,
+      "ref": "NASA ODQN 19-4 (Oct 2015)."
+    }
+  ],
+  "pc_rows": [
+    {
+      "id": "Iso-centred",
+      "Pc_foster": 0.019801326693244733,
+      "Pc_chan": 0.019801326693244692,
+      "Pc_analytic_or_ref": 0.019801326693244747,
+      "rel_err_pct": -0.0,
+      "ref": "1 - exp(-HBR²/2σ²) = 0.01980"
+    },
+    {
+      "id": "Iso-1sigma",
+      "Pc_foster": 0.01207006180108196,
+      "Pc_chan": 0.01207006180108196,
+      "Pc_analytic_or_ref": 0.01207006180108196,
+      "rel_err_pct": 0.0,
+      "ref": "ncx2-CDF analytic"
+    },
+    {
+      "id": "Hall2019-T1",
+      "Pc_foster": 0.0008813620939893629,
+      "Pc_chan": 0.0008813620939893629,
+      "Pc_analytic_or_ref": null,
+      "rel_err_pct": null,
+      "ref": "NASA CARA 2-D Pc test #1 (Hall 2019)"
+    },
+    {
+      "id": "Iridium-Cosmos-est",
+      "Pc_foster": 0.000432931956991416,
+      "Pc_chan": 0.000432931956991416,
+      "Pc_analytic_or_ref": null,
+      "rel_err_pct": null,
+      "ref": "NASA pre-event CDM Pc ~ 5e-5 .. 1e-3 range"
+    }
+  ],
+  "generated_at": "2026-05-08T08:43:37.233520Z"
+}

@@ -32,6 +32,8 @@ NAV_PAGES = [
     ("sim",       "轨迹仿真",       "sim"),
     ("lcola",     "LCOLA 飞越筛选", "lcola"),
     ("collision", "碰撞风险",       "collision"),
+    ("avoidance", "规避策略",       "avoidance"),
+    ("events",    "太空事件管理",   "events"),
     ("longterm",  "长期风险评估",   "longterm"),
     ("ai",        "AI 助手",        "ai"),
 ]
@@ -566,7 +568,7 @@ if page == "overview":
             五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，
             并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库
             与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；
-            同时提供 <strong>8 个交互式功能页面</strong>和 <strong>6 个 REST API 接口</strong>。
+            同时提供 <strong>10 个交互式功能页面</strong>（含规避策略 + 太空事件管理）和 <strong>19 个 REST API 接口</strong>（含数据源管理与太空事件管理）。
           </p>
         </div>
         """,
@@ -985,6 +987,59 @@ elif page == "catalog":
         else:
             st.warning("当前筛选条件下无数据，请调整筛选范围或检查数据摄入状态。")
 
+        # ── OEM (CCSDS 502.0-B-3) 导出，可被 STK / GMAT / Orekit 直接读取 ─
+        with st.expander("📄 导出 OEM（CCSDS 502.0-B-3 · STK 兼容）", expanded=False):
+            st.caption(
+                "针对当前筛选结果中的目标，使用最新 TLE 通过 SGP4 在 **TEME 参考系**"
+                "下传播轨道，并写出 CCSDS OEM 2.0 文件。文件可直接拖入 STK 11/12 的"
+                "「Insert From File」、GMAT、Orekit 或 NASA GMAT/Monte 等常见工具。"
+            )
+            _ids_in_df = df["NORAD ID"].dropna().astype(int).tolist() if not df.empty else []
+            _default_ids = "\n".join(str(i) for i in _ids_in_df[:5])
+            colA, colB, colC = st.columns([3, 1, 1])
+            ids_text = colA.text_area(
+                "NORAD 列表（每行一个；默认取当前筛选结果前 5 条）",
+                value=_default_ids, height=120, key="cat_oem_ids",
+            )
+            n_orbits = colB.number_input("传播圈数", min_value=0.5, max_value=15.0,
+                                          value=2.0, step=0.5, key="cat_oem_n")
+            step_s   = colC.number_input("步长 (秒)", min_value=10, max_value=600,
+                                          value=60, step=10, key="cat_oem_step")
+            include_cov = st.checkbox(
+                "附带占位 6×6 协方差（位置 1 km²、速度 1e-6 (km/s)² 对角阵）",
+                value=False, key="cat_oem_cov",
+                help="STK Conjunction / Astrogator 等模块若需要协方差矩阵可勾选；"
+                     "为占位值，便于走通流程，并非真实精度估计。",
+            )
+
+            if st.button("⬇ 生成并下载 OEM", key="cat_oem_btn", use_container_width=True):
+                try:
+                    nids = [int(x.strip()) for x in ids_text.splitlines()
+                            if x.strip().isdigit()]
+                    if not nids:
+                        st.warning("请至少填入一个 NORAD ID。")
+                    else:
+                        from streamlit_app.catalog_oem import build_catalog_oem_bytes
+                        raw, n_seg, n_pts = build_catalog_oem_bytes(
+                            tuple(nids[:200]),
+                            n_orbits=float(n_orbits),
+                            step_s=float(step_s),
+                            with_cov=bool(include_cov),
+                        )
+                        if not raw:
+                            st.warning("未能为这些 NORAD ID 找到可用 TLE / 元数据。")
+                        else:
+                            st.success(f"已生成 {n_seg} 个段、合计 {n_pts:,} 个状态点。")
+                            st.download_button(
+                                "⬇ 下载 catalog_export.oem",
+                                data=raw, file_name="catalog_export.oem",
+                                mime="text/plain",
+                                key="cat_oem_dl",
+                                use_container_width=True,
+                            )
+                except Exception as _exc:
+                    st.error(f"导出失败：{_exc}")
+
     # ── Tab 2：Asterank 小行星 / NEO 独立目录 ────────────────────────────
     with _cat_tab_aster:
         st.caption(
@@ -1281,6 +1336,11 @@ elif page == "collision":
             help="注入三条标注为 DEMO 的合成合取事件（无真实 NORAD 编号，表格中显示为「合成 #n」）。"
                  "真实碎片数据库较小时推荐开启。",
         )
+        try:
+            from streamlit_app.ordem_microdebris import render_microdebris_toggle
+            render_microdebris_toggle(key_prefix="micro_collision")
+        except Exception:
+            pass
 
     t0_utc = result.config.launch_utc
     pc_thresh = 1e-6 if crewed else 1e-5
@@ -1344,6 +1404,34 @@ elif page == "collision":
     if "risk_summaries" in st.session_state:
         import pandas as pd
         summaries = st.session_state["risk_summaries"]
+
+        # ── ORDEM 1–10 cm 微小碎片预期分布 ─────────────────────────────────────
+        try:
+            from streamlit_app.ordem_microdebris import render_microdebris_panel
+            # Pull altitude from the highest point across all phases (LaunchPhase
+            # exposes alt_range_km = (lo, hi) and a list of TrajectoryPoint).
+            _alt_candidates = []
+            for p in phases:
+                try:
+                    _alt_candidates.append(float(p.alt_range_km[1]))
+                except Exception:
+                    pass
+            _alt_for_panel = max(_alt_candidates) if _alt_candidates else (
+                float(getattr(result, "orbit_alt_km", None) or 400.0)
+            )
+            _inc_for_panel = float(getattr(result, "orbit_inc_deg", None) or
+                                    st.session_state.get("sim_az_deg", 53.0))
+            render_microdebris_panel(
+                alt_km=_alt_for_panel,
+                inc_deg=_inc_for_panel,
+                half_thickness_km=50.0,
+                n_sample=900,
+                key_prefix="micro_collision",
+                header_level=4,
+                show_toggle=False,
+            )
+        except Exception as _exc:
+            st.caption(f"_ORDEM 微小碎片面板加载失败：{_exc}_")
 
         # ── 阶段摘要总览 ──────────────────────────────────────────────────────
         st.markdown(section_title("chart_bar", "各飞行阶段风险摘要"), unsafe_allow_html=True)
@@ -1497,6 +1585,20 @@ elif page == "collision":
                 st.dataframe(pd.DataFrame(bo_rows), use_container_width=True)
             else:
                 st.success("当前发射方案无禁发合取事件")
+
+# ------------------------------------------------------------------
+# 页面：规避策略生成器
+# ------------------------------------------------------------------
+elif page == "avoidance":
+    from streamlit_app.avoidance_page import render_avoidance_page
+    render_avoidance_page()
+
+# ------------------------------------------------------------------
+# 页面：太空事件管理
+# ------------------------------------------------------------------
+elif page == "events":
+    from streamlit_app.events_page import render_events_page
+    render_events_page()
 
 # ------------------------------------------------------------------
 # 页面：长期任务碰撞风险评估
@@ -1901,6 +2003,11 @@ elif page == "lcola":
             help="在标称发射时刻附近注入合成禁发窗口（~5 分钟），用于演示 LCOLA 工作流。"
                  "目录规模较小时推荐开启。",
         )
+        try:
+            from streamlit_app.ordem_microdebris import render_microdebris_toggle
+            render_microdebris_toggle(key_prefix="micro_lcola")
+        except Exception:
+            pass
 
     # ── 耗时估算 ────────────────────────────────────────────────────────────
     n_steps_est = int(win_m * 2 * 60 / max(step_s, 1)) + 1
@@ -2063,6 +2170,38 @@ elif page == "lcola":
             f"发现 {len(report.blackout_windows)} 个禁发窗口，"
             f"共 {len(report.top_events)} 条合取事件"
         )
+
+        # ── ORDEM 1–10 cm 微小碎片预期分布 ─────────────────────────────────────
+        try:
+            from streamlit_app.ordem_microdebris import render_microdebris_panel
+            _sim = st.session_state.get("sim_result")
+            _phases = st.session_state.get("sim_phases", [])
+            _alt_candidates = []
+            for p in (_phases or []):
+                try:
+                    _alt_candidates.append(float(p.alt_range_km[1]))
+                except Exception:
+                    pass
+            if not _alt_candidates and _sim is not None:
+                try:
+                    _alt_candidates.append(float(max(
+                        pt.alt_km for pt in _sim.nominal
+                    )))
+                except Exception:
+                    pass
+            _alt_for_panel = max(_alt_candidates) if _alt_candidates else 400.0
+            _inc_for_panel = float(st.session_state.get("sim_az_deg", 53.0))
+            render_microdebris_panel(
+                alt_km=_alt_for_panel,
+                inc_deg=_inc_for_panel,
+                half_thickness_km=50.0,
+                n_sample=900,
+                key_prefix="micro_lcola",
+                header_level=4,
+                show_toggle=False,
+            )
+        except Exception as _exc:
+            st.caption(f"_ORDEM 微小碎片面板加载失败：{_exc}_")
 
         # Pc 时间曲线
         st.subheader("发射时刻偏移量 vs 最大碰撞概率 (Pc)")

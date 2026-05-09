@@ -55,6 +55,16 @@ _ICONS: dict[str, str] = {
         '<circle cx="9" cy="12" r="4"/><circle cx="15" cy="12" r="4"/>'
         '<path d="M11 10l6 4M17 10l-6 4"/>'
     ),
+    "avoidance": _svg(
+        '<path d="M4 18C8 8 16 8 20 18"/>'
+        '<path d="M4 18l3-2M20 18l-3-2"/>'
+        '<circle cx="12" cy="6" r="2.2"/>'
+    ),
+    "events": _svg(
+        '<circle cx="12" cy="12" r="2"/>'
+        '<path d="M12 4v3M12 17v3M4 12h3M17 12h3"/>'
+        '<path d="M6.5 6.5l2 2M15.5 15.5l2 2M6.5 17.5l2-2M15.5 8.5l2-2"/>'
+    ),
     "longterm": _svg(
         '<circle cx="12" cy="12" r="9"/>'
         '<path d="M12 6v6l4 2"/>'

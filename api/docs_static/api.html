@@ -40,12 +40,15 @@
     <a href="/docs/modules/collision">碰撞风险评估</a>
     <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
     <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/avoidance">规避策略生成器</a>
+    <a href="/docs/modules/events">太空事件管理</a>
     <a href="/docs/modules/longterm">长期风险评估</a>
     <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
     <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
     <a href="/docs/modules/ai">AI 助手</a>
     <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
     <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
+    <a href="/docs/modules/validation">算法正确性验证</a>
 
     <div class="toc-section">API 接口</div>
     <a href="/docs/api" class="active">API 使用指南</a>
@@ -55,13 +58,19 @@
     <a href="/docs/api/tle" class="sub">TLE 查询</a>
     <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
     <a href="/docs/api/stats" class="sub">系统统计</a>
+    <a href="#datasources" class="sub">数据源管理</a>
+    <a href="#ds-list" class="sub" style="padding-left:60px">└ 列出数据源</a>
+    <a href="#ds-priority" class="sub" style="padding-left:60px">└ 修改优先级</a>
+    <a href="#ds-write" class="sub" style="padding-left:60px">└ 写入 / 修改</a>
+    <a href="#ds-bulk" class="sub" style="padding-left:60px">└ 批量写入</a>
+    <a href="#ds-delete" class="sub" style="padding-left:60px">└ 删除</a>
   </div>
 </div>
 
 <div class="main">
 
 <h1>API 使用指南</h1>
-<p>系统提供 6 个 REST API 接口，支持通过 HTTP 请求以编程方式调用核心分析能力。适用于外部系统集成、自动化脚本或批量数据获取。</p>
+<p>系统提供 <strong>19 个 REST API 接口</strong>，支持通过 HTTP 请求以编程方式调用核心分析能力——核心查询 / 仿真 6 类、数据源管理 6 类、太空事件管理 7 类。适用于外部系统集成、自动化脚本或批量数据获取。</p>
 
 <h2>基本信息</h2>
 <table>
@@ -117,6 +126,86 @@
     <td>系统概况统计</td>
     <td><a href="/docs/api/stats">查看详情 →</a></td>
   </tr>
+  <tr>
+    <td><span class="method method-get">GET</span></td>
+    <td><code>/api/v1/datasources</code></td>
+    <td>列出全部数据源 + 优先级</td>
+    <td><a href="#ds-list">同页详情 ↓</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">PUT</span></td>
+    <td><code>/api/v1/datasources/{source}/priority</code></td>
+    <td>修改 / 创建数据源优先级</td>
+    <td><a href="#ds-priority">同页详情 ↓</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/datasources/{source}/objects</code></td>
+    <td>新增 / 修改自定义源数据（与 Space-Track 同字段）</td>
+    <td><a href="#ds-write">同页详情 ↓</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/datasources/{source}/objects/bulk</code></td>
+    <td>批量写入（≤500 行 / 次）</td>
+    <td><a href="#ds-bulk">同页详情 ↓</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">DELETE</span></td>
+    <td><code>/api/v1/datasources/{source}/objects/{norad_cat_id}</code></td>
+    <td>删除自定义源中一行</td>
+    <td><a href="#ds-delete">同页详情 ↓</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">DELETE</span></td>
+    <td><code>/api/v1/datasources/{source}</code></td>
+    <td>删除整个自定义源（内置源受保护）</td>
+    <td><a href="#ds-delete">同页详情 ↓</a></td>
+  </tr>
+
+  <tr><th colspan="4" style="background:#f1f5f9">— 太空事件管理 —</th></tr>
+  <tr>
+    <td><span class="method method-get">GET</span></td>
+    <td><code>/api/v1/events</code></td>
+    <td>列出空间事件（解体 / 碰撞 / 再入 / 机动 / CDM）</td>
+    <td><a href="/docs/modules/events#api">详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-get">GET</span></td>
+    <td><code>/api/v1/events/{id}</code></td>
+    <td>事件详情 + 原始 raw 字典</td>
+    <td><a href="/docs/modules/events#api">详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/events</code></td>
+    <td>插入新事件（手动 / 第三方系统）</td>
+    <td><a href="/docs/modules/events#api">详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">DELETE</span></td>
+    <td><code>/api/v1/events/{id}</code></td>
+    <td>删除事件</td>
+    <td><a href="/docs/modules/events#api">详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/events/{id}/breakup-simulate</code></td>
+    <td>NASA SBM 解体模拟（返回 ≤500 条碎片状态）</td>
+    <td><a href="/docs/modules/events#sbm">详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-get">GET</span></td>
+    <td><code>/api/v1/events/{id}/export?format=cdm|opm|ocm|rdm</code></td>
+    <td>导出 CCSDS NDM 文件</td>
+    <td><a href="/docs/modules/events#ccsds">详情 →</a></td>
+  </tr>
+  <tr>
+    <td><span class="method method-post">POST</span></td>
+    <td><code>/api/v1/events/import</code></td>
+    <td>导入 CCSDS KVN 文本（自动识别格式）</td>
+    <td><a href="/docs/modules/events#ccsds">详情 →</a></td>
+  </tr>
 </table>
 
 <h2>通用响应格式</h2>
@@ -153,8 +242,101 @@
   💡 <strong>提示：</strong>将示例中的 <code>&lt;your-host&gt;</code> 替换为系统实际部署的主机名或 IP 地址。如果在本机访问，使用 <code>localhost</code>。
 </div>
 
+<h2 id="datasources">数据源管理（运行时热更）</h2>
+
+<p>本组接口面向运维 / 二次开发场景，提供运行时<strong>数据源优先级调整</strong>与<strong>自定义数据源
+CRUD</strong>。系统统一目录 <code>v_unified_objects</code> 在每次写入或优先级变更后会自动刷新——当多个源对
+同一 NORAD 编号都有数据时，<strong>优先级数字最小</strong>（默认 Space-Track = 10）的源胜出。</p>
+
+<div class="info-box">
+✅ 支持给「当前没有任何数据」的数据源预置优先级（用作占位），等之后真正接入时立刻按既定排序参与去重。
+</div>
+
+<h3 id="ds-list">列出全部数据源</h3>
+<div class="endpoint">
+  <span class="method method-get">GET</span>
+  <span class="path">/api/v1/datasources</span>
+</div>
+
+<p>返回所有内置 / 用户自建数据源的优先级、描述、自建源行数：</p>
+<pre><code>curl http://localhost:8502/api/v1/datasources
+
+{
+  "sources": [
+    {"source":"Space-Track","priority":10,"is_user_defined":false,"user_row_count":0, ...},
+    {"source":"UCS",         "priority":20, ...},
+    {"source":"ESA-DISCOS",  "priority":30, ...},
+    ...
+  ]
+}</code></pre>
+
+<h3 id="ds-priority">修改 / 创建优先级</h3>
+<div class="endpoint">
+  <span class="method method-post">PUT</span>
+  <span class="path">/api/v1/datasources/{source}/priority</span>
+</div>
+
+<pre><code># 把 Space-Track 优先级降到 25（让自定义源更高）
+curl -X PUT http://localhost:8502/api/v1/datasources/Space-Track/priority \
+     -H 'Content-Type: application/json' \
+     -d '{"priority":25}'
+
+# 创建尚无数据的占位源
+curl -X PUT http://localhost:8502/api/v1/datasources/futureSrc/priority \
+     -H 'Content-Type: application/json' \
+     -d '{"priority":3,"description":"未来高优先级源"}'</code></pre>
+
+<p>响应：<code>{"source":"futureSrc","priority":3,"created":true}</code></p>
+
+<h3 id="ds-write">写入 / 修改单行（与 Space-Track 同字段）</h3>
+<div class="endpoint">
+  <span class="method method-post">POST</span>
+  <span class="path">/api/v1/datasources/{source}/objects</span>
+</div>
+
+<p>请求体字段与 <code>catalog_objects</code>（Space-Track 主表）完全一致；按
+<code>(source, norad_cat_id)</code> 幂等 upsert。如果 <code>source</code> 不在
+<code>datasource_priority</code> 中会自动以默认优先级 100 注册。</p>
+
+<pre><code>curl -X POST http://localhost:8502/api/v1/datasources/myCustomSrc/objects \
+     -H 'Content-Type: application/json' \
+     -d '{
+        "norad_cat_id": 990001,
+        "name": "TEST-SAT-A",
+        "object_type": "PAYLOAD",
+        "country_code": "PRC",
+        "launch_date": "2026-04-01",
+        "inclination": 53.0,
+        "perigee_km": 540, "apogee_km": 560,
+        "period_min": 95.5,
+        "rcs_size": "MEDIUM",
+        "extra": {"campaign":"test","note":"…"}
+     }'</code></pre>
+
+<h3 id="ds-bulk">批量写入</h3>
+<div class="endpoint">
+  <span class="method method-post">POST</span>
+  <span class="path">/api/v1/datasources/{source}/objects/bulk</span>
+</div>
+
+<p>请求体为对象数组（最多 500 个），效果等同多次单写。</p>
+
+<h3 id="ds-delete">删除</h3>
+<table>
+  <tr><th>方法</th><th>路径</th><th>语义</th></tr>
+  <tr><td>DELETE</td><td><code>/api/v1/datasources/{source}/objects/{norad_cat_id}</code></td><td>删除某行</td></tr>
+  <tr><td>DELETE</td><td><code>/api/v1/datasources/{source}</code></td><td>删除整个自建源（含全部行）</td></tr>
+</table>
+
+<p><strong>受保护：</strong>试图删除 Space-Track / UCS / ESA-DISCOS / GCAT / UNOOSA / Asterank /
+TechPort 等内置源会返回 HTTP 403。</p>
+
+<h3>统一视图与自动刷新</h3>
+<p>每次以上接口写入或更新后，FastAPI 端会自动 <code>REFRESH MATERIALIZED VIEW v_unified_objects</code>。
+目录页、可视化探索、统计等所有依赖该视图的页面会立刻看到新去重结果。</p>
+
 <h2>关于 Asterank 与 NASA TechPort 专题数据</h2>
-<p>上述 6 个 REST 接口全部作用于<strong>地球在轨目标</strong>（Space-Track 主目录 + UCS/ESA 增强字段），不涉及 Asterank 小行星 / 近地天体（NEO）专题库与 NASA TechPort 航天技术项目组合。要访问这两个专题数据，可通过以下方式：</p>
+<p>除上述<strong>数据源管理</strong> 6 个接口外，前 6 个 REST 接口全部作用于<strong>地球在轨目标</strong>（Space-Track 主目录 + UCS/ESA 增强字段），不涉及 Asterank 小行星 / 近地天体（NEO）专题库与 NASA TechPort 航天技术项目组合。要访问这两个专题数据，可通过以下方式：</p>
 <ul>
   <li><strong>交互式浏览与筛选：</strong>前往 <a href="/docs/modules/catalog">目标目录</a> 页面的「小行星 / NEO (Asterank)」与「NASA 技术项目 (TechPort)」标签页，按各自字段筛选。</li>
   <li><strong>检查入库条数：</strong>调用 <a href="/docs/api/stats"><code>/api/v1/stats</code></a>，其 <code>external_sources.asterank</code> 与 <code>external_sources.techport</code> 字段返回 <code>external_asterank</code> / <code>external_techport</code> 表中的记录数。</li>
