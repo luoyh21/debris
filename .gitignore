@@ -13,3 +13,5 @@ build/
 *.db
 *.log
 pgdata/
+data/external/techport_index.json
+*.jsonl

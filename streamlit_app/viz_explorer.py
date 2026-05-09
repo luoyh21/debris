@@ -1,16 +1,18 @@
 """
 可视化探索模块 — 三场景沉浸式 3D 仪表盘
 
-Tab 1  全球碎片态势     pydeck GlobeView 交互球体 + 高度直方图
+Tab 1  全球碎片态势     正射球面 / 平面 MapView（底图）+ 高度直方图
 Tab 2  高度分层下钻     Plotly Scatter3d 地球球面 + 5 层轨道带
 Tab 3  火箭发射碎片预警 6-DOF 轨迹动画 + 时间轴 + 近地碎片高亮
 """
 from __future__ import annotations
 
+import html
 import logging
 import math
 import string
 import sys, os
+from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
@@ -23,6 +25,31 @@ from typing import List, Optional
 from streamlit_app.nav_icons import icon_inline, section_title, title_row
 
 log = logging.getLogger(__name__)
+
+
+def _plotly_include_html() -> str:
+    """Plotly.js for ``components.html`` iframes: wheel inline or CDN mirror.
+
+    Default uses jsDelivr (often reachable where cdn.plot.ly is blocked).
+    Override URL with env ``STREAMLIT_PLOTLY_CDN``, or set ``STREAMLIT_PLOTLY_JS_INLINE=1``
+    to embed ``plotly.min.js`` from the installed Python package (~5 MB HTML).
+    """
+    flag = os.environ.get("STREAMLIT_PLOTLY_JS_INLINE", "").strip().lower()
+    if flag in ("1", "true", "yes"):
+        try:
+            import plotly
+
+            p = Path(plotly.__file__).resolve().parent / "package_data" / "plotly.min.js"
+            if p.is_file():
+                return "<script>\n" + p.read_text(encoding="utf-8") + "\n</script>"
+        except Exception:
+            log.warning("STREAMLIT_PLOTLY_JS_INLINE set but failed to read bundled plotly.min.js")
+    url = os.environ.get(
+        "STREAMLIT_PLOTLY_CDN",
+        "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js",
+    ).strip()
+    return f'<script src="{html.escape(url, quote=True)}"></script>'
+
 
 try:
     from sgp4.api import Satrec, WGS84, jday
@@ -875,6 +902,112 @@ def make_globe_ortho(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def make_globe_flat_mercator(df: pd.DataFrame) -> go.Figure:
+    """Web Mercator–style flat map via Plotly (bundled coastlines; no raster tiles)."""
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(paper_bgcolor=DARK_BG, height=520)
+        return fig
+
+    colors = _hex_color_col(df)
+    hover = (
+        "NORAD: " + df["norad_cat_id"].astype(str)
+        + "<br>" + df["name"].fillna("").str[:28]
+        + "<br>类型: " + df["object_type"].fillna("?")
+        + "<br>高度: " + df["alt_km"].round(0).astype(int).astype(str) + " km"
+        + "<br>倾角: " + df["inclination"].round(1).astype(str) + "°"
+    )
+    fig = go.Figure(go.Scattergeo(
+        lon=df["lon"], lat=df["lat"],
+        mode="markers",
+        marker=dict(size=2.5, color=colors, opacity=0.72, line=dict(width=0)),
+        text=hover,
+        hovertemplate="%{text}<extra></extra>",
+    ))
+    fig.update_geos(
+        projection_type="mercator",
+        showcoastlines=True, coastlinecolor="#3a7a5a", coastlinewidth=0.8,
+        showland=True, landcolor="#1a3525",
+        showocean=True, oceancolor="#071520",
+        showlakes=True, lakecolor="#0a1f30",
+        showcountries=True, countrycolor="#2a4a3a", countrywidth=0.4,
+        showframe=False,
+        bgcolor=DARK_BG,
+        lonaxis=dict(showgrid=True, gridcolor="#1a2e3e", dtick=30, gridwidth=0.5),
+        lataxis=dict(showgrid=True, gridcolor="#1a2e3e", dtick=30, gridwidth=0.5),
+        center=dict(lon=110, lat=20),
+    )
+    fig.update_layout(
+        paper_bgcolor=DARK_BG, margin=dict(l=0, r=0, t=0, b=0),
+        height=530, showlegend=False,
+    )
+    return fig
+
+
+def _pydeck_flat_map_style() -> tuple[str, dict]:
+    """Carto GL style needs no Mapbox token; optional Mapbox dark style if token set."""
+    tok = (os.environ.get("MAPBOX_API_KEY") or os.environ.get("MAPBOX_TOKEN") or "").strip()
+    if tok:
+        return "mapbox://styles/mapbox/dark-v11", {"mapbox": tok}
+    return (
+        "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+        {},
+    )
+
+
+def _render_pydeck_flat_map(df: pd.DataFrame, height: int = 540) -> None:
+    """Slippy 2-D map (MapView). Fallback: Plotly mercator without WebGL raster tiles."""
+    try:
+        import pydeck as pdk
+
+        df_p = df.copy()
+        df_p["r"] = df_p["object_type"].map(
+            {k: v[0] for k, v in _TYPE_PDK.items()}).fillna(136).astype(int)
+        df_p["g"] = df_p["object_type"].map(
+            {k: v[1] for k, v in _TYPE_PDK.items()}).fillna(136).astype(int)
+        df_p["b"] = df_p["object_type"].map(
+            {k: v[2] for k, v in _TYPE_PDK.items()}).fillna(136).astype(int)
+
+        scatter = pdk.Layer(
+            "ScatterplotLayer",
+            data=df_p,
+            get_position=["lon", "lat"],
+            get_color=["r", "g", "b", 200],
+            get_radius=25000,
+            radius_min_pixels=1.5,
+            radius_max_pixels=6,
+            pickable=True,
+            opacity=0.75,
+        )
+        vs = pdk.ViewState(latitude=20, longitude=110, zoom=1.3, pitch=0, bearing=0)
+        map_style, api_keys = _pydeck_flat_map_style()
+        deck = pdk.Deck(
+            layers=[scatter],
+            initial_view_state=vs,
+            map_style=map_style,
+            api_keys=api_keys,
+            tooltip={
+                "html": "<b>NORAD {norad_cat_id}</b><br/>{name}<br/>"
+                        "类型: {object_type}<br/>Alt: {alt_km} km",
+                "style": {"backgroundColor": "#0e1117", "color": "white",
+                          "font-size": "12px"},
+            },
+            parameters={"clearColor": [0.03, 0.06, 0.12, 1]},
+        )
+        st.pydeck_chart(deck, use_container_width=True, height=height)
+        st.caption(
+            "平面图为矢量底图（默认 Carto，无需 token）。若只见散点、无底图，多为浏览器禁用 WebGL "
+            "或无法访问 Carto 域名；请改用「正射球面」，或配置 **MAPBOX_API_KEY** 使用 Mapbox 底图。"
+        )
+    except Exception as e:
+        st.warning(f"pydeck 平面图渲染失败，已改用 Plotly 内置海岸线图（无第三方栅格瓦片）：{e}")
+        st.plotly_chart(
+            make_globe_flat_mercator(df),
+            use_container_width=True,
+            config=dict(scrollZoom=True, displayModeBar=False),
+        )
+
+
 # ─── Orbit propagation trace ───────────────────────────────────────────────────
 _TRACE_COLORS = [
     "#FF6B6B", "#00CCFF", "#FFEE00", "#6BCB77", "#4D96FF",
@@ -1643,7 +1776,7 @@ def _compute_realtime_frames(
 
 _RT_JS_TEMPLATE = """
 <div id="{div_id}" style="width:100%;height:{height}px"></div>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+{plotly_include}
 <script>
 (function(){{
   var fig={fig_json};
@@ -1702,7 +1835,7 @@ _RT_JS_TEMPLATE = """
 # rebuild iterates 0..i0 from scratch.
 _RT_JS_TEMPLATE_ORTHO_TRAILS = string.Template("""
 <div id="$div_id" style="width:100%;height:${height}px"></div>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+$plotly_include
 <script>
 (function(){
   var fig=$fig_json;
@@ -1848,6 +1981,7 @@ def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-glob
             frames_json=_json.dumps(fd, separators=(',', ':')),
             trail_groups_json=_json.dumps(trail_groups, separators=(',', ':')),
             step_ms=int(step_s * 1000),
+            plotly_include=_plotly_include_html(),
         )
     else:
         html = _RT_JS_TEMPLATE.format(
@@ -1863,6 +1997,7 @@ def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-glob
             wrap_fix_1="",
             extra_interp="",
             restyle_obj="{lon:[a],lat:[b]}",
+            plotly_include=_plotly_include_html(),
         )
     components.html(html, height=height + 10, scrolling=False)
 
@@ -1917,6 +2052,7 @@ def _render_realtime_3d(data: dict, layer: dict, height: int = 680):
         wrap_fix_1="",
         extra_interp="var d2=F[i1].z[i]-F[i0].z[i];c[i]=F[i0].z[i]+f*d2;",
         restyle_obj="{x:[a],y:[b],z:[c]}",
+        plotly_include=_plotly_include_html(),
     )
     components.html(html, height=height + 10, scrolling=False)
 
@@ -2042,49 +2178,8 @@ def _render_global_view():
                     st.plotly_chart(make_globe_ortho(df), use_container_width=True,
                                     config=dict(scrollZoom=True, displayModeBar=False))
             _gv_animated_ortho()
-        else:
-            # ── pydeck GlobeView ──────────────────────────────────────────────
-            try:
-                import pydeck as pdk
-                df_p = df.copy()
-                df_p["r"] = df_p["object_type"].map(
-                    {k: v[0] for k, v in _TYPE_PDK.items()}).fillna(136).astype(int)
-                df_p["g"] = df_p["object_type"].map(
-                    {k: v[1] for k, v in _TYPE_PDK.items()}).fillna(136).astype(int)
-                df_p["b"] = df_p["object_type"].map(
-                    {k: v[2] for k, v in _TYPE_PDK.items()}).fillna(136).astype(int)
-
-                scatter = pdk.Layer(
-                    "ScatterplotLayer",
-                    data=df_p,
-                    get_position=["lon", "lat"],
-                    get_color=["r", "g", "b", 200],
-                    get_radius=25000,
-                    radius_min_pixels=1.5,
-                    radius_max_pixels=6,
-                    pickable=True,
-                    opacity=0.75,
-                )
-                vs = pdk.ViewState(latitude=20, longitude=110, zoom=0,
-                                   min_zoom=0, max_zoom=12)
-                deck = pdk.Deck(
-                    layers=[scatter],
-                    initial_view_state=vs,
-                    views=[pdk.View("GlobeView", controller=True)],
-                    map_style=None,
-                    tooltip={
-                        "html": "<b>NORAD {norad_cat_id}</b><br/>{name}<br/>"
-                                "类型: {object_type}<br/>Alt: {alt_km} km",
-                        "style": {"backgroundColor": "#0e1117", "color": "white",
-                                  "font-size": "12px"},
-                    },
-                    parameters={"clearColor": [0.03, 0.06, 0.12, 1]},
-                )
-                st.pydeck_chart(deck, use_container_width=True, height=540)
-            except Exception as e:
-                st.error(f"pydeck 渲染失败，回退到正射球面视图：{e}")
-                st.plotly_chart(make_globe_ortho(df), use_container_width=True,
-                                config=dict(displayModeBar=False))
+        elif view_mode == _gv_flat:
+            _render_pydeck_flat_map(df)
 
     # ── Altitude histograms (LEO + full economy space) ──────────────────────
     h1, h2 = st.columns(2, gap="medium")

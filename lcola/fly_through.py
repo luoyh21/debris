@@ -692,7 +692,7 @@ def assess_launch_phases(
     default_sigma_km: float = 1.5,        # realistic TLE position uncertainty [km]
     max_per_phase:    int   = 500,
     inject_demo:      bool  = False,      # inject synthetic demo threats for UI testing
-    progress_cb       = None,             # optional callback(phase_name, i, n)
+    progress_cb       = None,             # optional callback(phase_name, i, n, msg=None)
 ) -> List[PhaseRiskSummary]:
     """
     Assess collision risk for each phase of a single launch.
@@ -704,26 +704,33 @@ def assess_launch_phases(
       4. Return per-phase PhaseRiskSummary (events sorted by Pc desc).
 
     This is the engine behind the '碰撞风险' Streamlit page.
-    """
-    summaries: List[PhaseRiskSummary] = []
 
+    ``progress_cb`` may receive optional ``msg`` for long-running DB steps
+    (spatial prefilter / TLE batch) before per-debris counters start.
+    """
     # ── Collect all candidates across phases, then batch-fetch TLEs ──────────
     phase_data: list = []   # (phase, t_start, t_end, pts, rk_times, rk_pos, cov_rk, cands)
     all_nids_needed: list[int] = []
+
+    if progress_cb and phases:
+        progress_cb(
+            phases[0].name, 0, 1,
+            msg="正在连接数据库并执行各阶段空间预筛选（可能需要数十秒）…",
+        )
 
     for phase in phases:
         t_start = launch_time + timedelta(seconds=phase.t_start_met)
         t_end   = launch_time + timedelta(seconds=phase.t_end_met)
 
         if (t_end - t_start).total_seconds() < 10 or not phase.points:
-            summaries.append(PhaseRiskSummary(
-                phase_name=phase.name, t_start_met=phase.t_start_met,
-                t_end_met=phase.t_end_met, t_start_utc=t_start, t_end_utc=t_end,
-                n_candidates=0, n_evaluated=0, max_pc=0.0, events=[],
-                risk_text=phase.risk_profile,
-            ))
             phase_data.append(None)
             continue
+
+        if progress_cb:
+            progress_cb(
+                phase.name, 0, 1,
+                msg=f"空间预筛选 · {phase.name}（依赖数据库与 VPN/网络可达性）…",
+            )
 
         pts = phase.points
         rk_times = np.array([p.t_met_s - phase.t_start_met for p in pts])
@@ -737,6 +744,11 @@ def assess_launch_phases(
         phase_data.append((phase, t_start, t_end, rk_times, rk_pos, cov_rk, candidates))
 
     # Batch-fetch TLEs for all candidates at once
+    if progress_cb and phases:
+        progress_cb(
+            phases[0].name, 0, 1,
+            msg="正在批量加载候选目标 TLE …",
+        )
     tle_cache = _fetch_tle_batch(list(set(all_nids_needed)))
 
     # ── Evaluate each phase ───────────────────────────────────────────────────

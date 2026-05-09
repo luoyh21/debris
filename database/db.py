@@ -1,11 +1,16 @@
 """Database connection factory and session helpers.
 
 Resilient to transient network disruptions (e.g. VPN switches):
-- pool_pre_ping=True  → detect stale connections before handing them out
-- pool_recycle=280    → recycle connections every ~5 min to avoid stale TCP
-- connect_timeout=5   → fail fast on unreachable host, then retry
+- pool_pre_ping=True     → detect stale connections before handing them out
+- pool_recycle (env)     → recycle TCP periodically (default ~280 s)
+- connect_timeout (env)→ fail fast when DB host unreachable (default 10 s)
+- pool_timeout (env)    → do not block forever waiting for a pooled connection
+- TCP keepalives         → detect dropped VPN / NAT sooner
 - session_scope retries up to 3 times on OperationalError
+
+See ``DB_*`` env vars in ``config/settings.py``.
 """
+import os
 import time
 import logging
 from contextlib import contextmanager
@@ -15,7 +20,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import OperationalError
 
-from config.settings import DB_DSN
+from config.settings import (
+    DB_DSN,
+    DB_CONNECT_TIMEOUT,
+    DB_POOL_TIMEOUT,
+    DB_POOL_RECYCLE,
+    DB_STATEMENT_TIMEOUT_SEC,
+)
 from database.models import Base
 
 _log = logging.getLogger(__name__)
@@ -41,18 +52,29 @@ def _reset_pool():
 def get_engine():
     global _engine
     if _engine is None:
+        connect_args = {
+            "connect_timeout": DB_CONNECT_TIMEOUT,
+            # 强制客户端用 UTF-8 编码，避免 Windows 中文系统（GBK）下
+            # psycopg2 解码 PostgreSQL 错误消息时抛出 UnicodeDecodeError
+            "client_encoding": "utf8",
+            # VPN / 网络闪断时更快发现死连接
+            "keepalives": 1,
+            "keepalives_idle": int(os.getenv("DB_KEEPALIVES_IDLE", "30")),
+            "keepalives_interval": int(os.getenv("DB_KEEPALIVES_INTERVAL", "10")),
+            "keepalives_count": int(os.getenv("DB_KEEPALIVES_COUNT", "5")),
+        }
+        if DB_STATEMENT_TIMEOUT_SEC and DB_STATEMENT_TIMEOUT_SEC > 0:
+            connect_args["options"] = (
+                f"-c statement_timeout={int(DB_STATEMENT_TIMEOUT_SEC)}s"
+            )
         _engine = create_engine(
             DB_DSN,
             pool_pre_ping=True,
             pool_size=5,
             max_overflow=10,
-            pool_recycle=280,
-            connect_args={
-                "connect_timeout": 5,
-                # 强制客户端用 UTF-8 编码，避免 Windows 中文系统（GBK）下
-                # psycopg2 解码 PostgreSQL 错误消息时抛出 UnicodeDecodeError
-                "client_encoding": "utf8",
-            },
+            pool_recycle=DB_POOL_RECYCLE,
+            pool_timeout=DB_POOL_TIMEOUT,
+            connect_args=connect_args,
         )
     return _engine
 

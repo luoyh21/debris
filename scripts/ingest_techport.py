@@ -170,43 +170,62 @@ def _http_get_json(sess: requests.Session, url: str,
 def fetch_project_index(sess: requests.Session, *, offline: bool = False) -> list[dict]:
     """Return the full project listing (cached on disk)."""
     if offline and os.path.exists(LIST_CACHE):
-        with open(LIST_CACHE) as fh:
+        with open(LIST_CACHE, encoding="utf-8") as fh:
             return json.load(fh)
 
     log.info("Fetching project index from %s/projects", _BASE)
     data = _http_get_json(sess, f"{_BASE}/projects")
     if not data and os.path.exists(LIST_CACHE):
         log.warning("  API failed — falling back to local cache")
-        with open(LIST_CACHE) as fh:
+        with open(LIST_CACHE, encoding="utf-8") as fh:
             return json.load(fh)
     projects = (data or {}).get("projects", [])
     if projects:
-        with open(LIST_CACHE, "w") as fh:
-            json.dump(projects, fh)
+        with open(LIST_CACHE, "w", encoding="utf-8") as fh:
+            json.dump(projects, fh, ensure_ascii=False)
         log.info("  Cached %d project ids → %s", len(projects), LIST_CACHE)
     return projects
 
 
 # ── Step 2: per-project detail fetch ─────────────────────────────────────────
+def _decode_jsonl_bytes(raw: bytes) -> str | None:
+    """Decode one JSONL record line (newline stripped); tolerate legacy GBK cache."""
+    raw = raw.rstrip(b"\r\n")
+    if not raw.strip():
+        return None
+    for enc in ("utf-8", "utf-8-sig"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    try:
+        return raw.decode("gbk")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
+
+
 def _load_detail_cache() -> dict[int, dict]:
     """Load existing detail cache (jsonl) → {project_id: full project dict}."""
     cache: dict[int, dict] = {}
     if not os.path.exists(DETAIL_CACHE):
         return cache
-    with open(DETAIL_CACHE) as fh:
-        for line in fh:
+    with open(DETAIL_CACHE, "rb") as fh:
+        for raw in fh:
             try:
+                line = _decode_jsonl_bytes(raw)
+                if line is None:
+                    continue
                 row = json.loads(line)
                 pid = row.get("projectId")
                 if pid is not None:
                     cache[int(pid)] = row
             except Exception:
-                pass
+                continue
     return cache
 
 
 def _append_detail_cache(rows: Iterable[dict]) -> None:
-    with open(DETAIL_CACHE, "a") as fh:
+    with open(DETAIL_CACHE, "a", encoding="utf-8", newline="\n") as fh:
         for r in rows:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
 

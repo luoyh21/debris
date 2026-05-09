@@ -99,13 +99,21 @@ def get_db_session_factory():
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
+def run_query(
+    sql: str,
+    params: dict | None = None,
+    *,
+    suppress_errors: bool = False,
+) -> pd.DataFrame:
     """Read-only SQL query with a 60-second result cache.
 
     Uses session_scope() from database.db which has automatic pool_pre_ping,
     pool_recycle, and up-to-3-retry logic on OperationalError — this prevents
     long-running Streamlit sessions from dying on stale TCP connections.
     Falls back to a direct session (legacy path) if the import fails.
+
+    suppress_errors: when True, missing tables / transient failures return an
+    empty DataFrame without st.error（用于可选的外部专题表）。
     """
     try:
         from database.db import session_scope
@@ -124,11 +132,15 @@ def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
             result = sess.execute(text(sql), params or {})
             return pd.DataFrame(result.fetchall(), columns=result.keys())
         except Exception as exc:
+            if suppress_errors:
+                return pd.DataFrame()
             st.error(f"数据库错误：{exc}")
             return pd.DataFrame()
         finally:
             sess.close()
     except Exception as exc:
+        if suppress_errors:
+            return pd.DataFrame()
         st.error(f"数据库错误：{exc}")
         return pd.DataFrame()
 
@@ -551,8 +563,25 @@ with st.sidebar:
 if page == "overview":
     st.markdown(title_row("overview", "空间环境概览"), unsafe_allow_html=True)
 
+    @st.cache_data(ttl=45, show_spinner=False)
+    def _load_overview_snapshot():
+        from database.db import session_scope
+        from database.system_snapshot import compute_system_snapshot
+        try:
+            with session_scope() as sess:
+                return compute_system_snapshot(sess)
+        except Exception:
+            return {}
+
+    _snap = _load_overview_snapshot()
+    _ut = int(_snap.get("unified_total") or 0)
+    _nps = int(_snap.get("unified_primary_sources") or 0)
+    _tp = int((_snap.get("external_sources") or {}).get("techport") or 0)
+    _intro_ut = f"{_ut:,}" if _snap else "—"
+    _intro_tp = f"{_tp:,}" if _snap else "—"
+
     st.markdown(
-        """
+        f"""
         <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;
                     padding:18px 22px;margin-bottom:18px;color:#1e293b">
           <div style="font-size:1.05em;font-weight:600;margin-bottom:8px">
@@ -565,7 +594,7 @@ if page == "overview":
           </p>
           <p style="margin:0;line-height:1.75">
             系统整合了 <strong>Space-Track、UCS、ESA DISCOS、GCAT、UNOOSA</strong>
-            五大权威数据源，统一去重后形成 <strong>60,000+</strong> 在轨目标的综合目录，
+            五大权威数据源，统一去重后形成 <strong>{_intro_ut}</strong> 条在轨目标的综合目录，
             并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库
             与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；
             同时提供 <strong>10 个交互式功能页面</strong>（含规避策略 + 太空事件管理）和 <strong>19 个 REST API 接口</strong>（含数据源管理与太空事件管理）。
@@ -588,25 +617,25 @@ if page == "overview":
             unsafe_allow_html=True,
         )
 
-    # Top-level metrics from unified view (ST + UCS + ESA)
-    _stats_df = run_query("""
-        SELECT
-            COUNT(*)                                                     AS total,
-            SUM(CASE WHEN object_type = 'PAYLOAD'     THEN 1 ELSE 0 END) AS payloads,
-            SUM(CASE WHEN object_type = 'DEBRIS'      THEN 1 ELSE 0 END) AS debris,
-            SUM(CASE WHEN object_type = 'ROCKET BODY' THEN 1 ELSE 0 END) AS rockets,
-            COUNT(DISTINCT primary_source)                                AS n_sources
-        FROM v_unified_objects
-    """)
-
+    # Top-level metrics：与 `/api/v1/stats` 共用 compute_system_snapshot
     c1, c2, c3, c4 = st.columns(4)
-    if not _stats_df.empty:
-        _s = _stats_df.iloc[0]
-        _overview_card(c1, "在轨目标总数", f"{int(_s['total']):,}",
-                       f"融合 {int(_s['n_sources'])} 个数据源")
-        _overview_card(c2, "有效载荷", f"{int(_s['payloads']):,}", "PAYLOAD")
-        _overview_card(c3, "空间碎片", f"{int(_s['debris']):,}", "DEBRIS")
-        _overview_card(c4, "火箭箭体", f"{int(_s['rockets']):,}", "ROCKET BODY")
+    if _snap:
+        _overview_card(
+            c1, "在轨目标总数", f"{_ut:,}",
+            f"融合 {_nps} 个轨道目录源",
+        )
+        _overview_card(
+            c2, "有效载荷",
+            f"{int(_snap.get('unified_payloads') or 0):,}", "PAYLOAD",
+        )
+        _overview_card(
+            c3, "空间碎片",
+            f"{int(_snap.get('unified_debris') or 0):,}", "DEBRIS",
+        )
+        _overview_card(
+            c4, "火箭箭体",
+            f"{int(_snap.get('unified_rocket_bodies') or 0):,}", "ROCKET BODY",
+        )
     else:
         for c in (c1, c2, c3, c4):
             _overview_card(c, "–", "–")
@@ -765,37 +794,8 @@ if page == "overview":
     # *exclusive* portion of each external source.  The摄入状态 table is
     # supposed to reflect "how many rows did each source contribute", so
     # we count the underlying source tables directly.
-    _src_type_df = run_query("""
-        SELECT 'Space-Track' AS 数据源, COALESCE(object_type,'UNKNOWN') AS 目标类型,
-               COUNT(*) AS 数量
-        FROM catalog_objects GROUP BY 1, 2
-        UNION ALL
-        SELECT 'UCS', 'PAYLOAD', COUNT(*)
-        FROM external_ucs_satellites
-        UNION ALL
-        SELECT 'ESA-DISCOS',
-            CASE
-                WHEN "objectClass" IN ('Payload','Payload Mission Related Object')
-                     THEN 'PAYLOAD'
-                WHEN "objectClass" = 'Rocket Body'
-                     THEN 'ROCKET BODY'
-                WHEN "objectClass" IN ('Payload Fragmentation Debris',
-                     'Rocket Fragmentation Debris','Payload Debris','Rocket Debris',
-                     'Rocket Mission Related Object','Other Debris')
-                     THEN 'DEBRIS'
-                ELSE 'UNKNOWN'
-            END,
-            COUNT(*)
-        FROM external_esa_discos GROUP BY 2
-        ORDER BY 1, 3 DESC
-    """)
-    _src_total_df = run_query("""
-        SELECT '数据源' AS 数据源, 0 AS 合计 WHERE FALSE
-        UNION ALL SELECT 'Space-Track', COUNT(*) FROM catalog_objects
-        UNION ALL SELECT 'UCS', COUNT(*) FROM external_ucs_satellites
-        UNION ALL SELECT 'ESA-DISCOS', COUNT(*) FROM external_esa_discos
-        ORDER BY 2 DESC
-    """)
+    _rows = _snap.get("ingestion_typed_rows") or []
+    _src_type_df = pd.DataFrame(_rows) if _rows else pd.DataFrame()
 
     if not _src_type_df.empty:
         # Pivot: source as rows, object type as columns
@@ -820,11 +820,14 @@ if page == "overview":
                 _pivot[c] = _pivot[c].apply(lambda x: f"{int(x):,}")
         st.dataframe(_pivot, use_container_width=True, hide_index=True)
 
-        # Summary line
-        _total_obj = run_query("SELECT COUNT(*) AS n FROM v_unified_objects")
-        _n = int(_total_obj.iloc[0]["n"]) if not _total_obj.empty else 0
-        _n_src = _src_total_df["数据源"].nunique() if not _src_total_df.empty else 0
-        st.caption(f"融合 **{_n_src}** 个数据源 · 去重后共 **{_n:,}** 个空间目标")
+        _raw_sum = int(_snap.get("raw_catalog_rows_space_ucs_esa_sum") or 0)
+        # Summary：矩阵「合计」为各库表原始行数；三源相加含重叠 NORAD，故通常远大于去重条数
+        st.caption(
+            f"上表各数据源「合计」为**该库目录表的原始入库行数**（按类型拆分），未与其他库去重。"
+            f" Space-Track + UCS + ESA-DISCOS **三表行数相加 = {_raw_sum:,}**，"
+            f"常见大于顶部「在轨目标总数」**{_ut:,}**：同一 NORAD 在多库并存时融合视图只计一条。"
+            f" 融合口径：**{_nps}** 个轨道目录源 · 去重后 **{_ut:,}** 个空间目标。"
+        )
 
     # Supplementary: GCAT launch history + UNOOSA aggregate stats + Asterank
     # (asteroids / NEO) + NASA TechPort (technology project portfolio). These
@@ -842,7 +845,10 @@ if page == "overview":
         ]
         for tbl, label in _aux_tables:
             try:
-                eq = run_query(f"SELECT COUNT(*) AS cnt FROM {tbl}")
+                eq = run_query(
+                    f"SELECT COUNT(*) AS cnt FROM {tbl}",
+                    suppress_errors=True,
+                )
                 if not eq.empty and int(eq.iloc[0]["cnt"]) > 0:
                     _aux_rows.append((label, int(eq.iloc[0]["cnt"])))
             except Exception:
@@ -1048,10 +1054,11 @@ elif page == "catalog":
             "根数、经济开采估值（price/profit）、Δv、光谱类型等字段。"
         )
 
-        try:
-            _ast_total = run_query("SELECT COUNT(*) AS n FROM external_asterank")
-            _ast_n = int(_ast_total.iloc[0]["n"]) if not _ast_total.empty else 0
-        except Exception:
+        _ast_total = run_query(
+            "SELECT COUNT(*) AS n FROM external_asterank",
+            suppress_errors=True,
+        )
+        if _ast_total.empty:
             _ast_n = 0
             st.warning(
                 "未检测到 `external_asterank` 表。请先运行："
@@ -1059,7 +1066,8 @@ elif page == "catalog":
                 "`docker compose run --rm app python scripts/ingest_asterank.py`）"
                 "后刷新页面。"
             )
-
+        else:
+            _ast_n = int(_ast_total.iloc[0]["n"])
         if _ast_n > 0:
             with st.expander("筛选条件", expanded=True):
                 ac1, ac2, ac3 = st.columns(3)
@@ -1133,10 +1141,11 @@ elif page == "catalog":
             "与地球在轨目标 / 小行星目录相互独立，存储于 `external_techport` 表。"
         )
 
-        try:
-            _tp_total = run_query("SELECT COUNT(*) AS n FROM external_techport")
-            _tp_n = int(_tp_total.iloc[0]["n"]) if not _tp_total.empty else 0
-        except Exception:
+        _tp_total = run_query(
+            "SELECT COUNT(*) AS n FROM external_techport",
+            suppress_errors=True,
+        )
+        if _tp_total.empty:
             _tp_n = 0
             st.warning(
                 "未检测到 `external_techport` 表。请先运行："
@@ -1144,7 +1153,8 @@ elif page == "catalog":
                 "`docker compose run --rm app python scripts/ingest_techport.py`）"
                 "后刷新页面。"
             )
-
+        else:
+            _tp_n = int(_tp_total.iloc[0]["n"])
         if _tp_n > 0:
             with st.expander("筛选条件", expanded=True):
                 tc1, tc2, tc3 = st.columns(3)
@@ -1367,9 +1377,17 @@ elif page == "collision":
         progress_bar = st.progress(0, text="准备评估…")
         status_text  = st.empty()
 
-        def _cb(phase_name, i, n):
-            frac = (phases.index(next(p for p in phases if p.name == phase_name))
-                    / len(phases)) + (i / max(n, 1)) / len(phases)
+        def _cb(phase_name, i, n, msg=None):
+            if msg:
+                status_text.caption(msg)
+                progress_bar.progress(0.05, text=msg)
+                return
+            try:
+                pi = phases.index(next(p for p in phases if p.name == phase_name))
+            except StopIteration:
+                pi = 0
+            denom_ph = max(len(phases), 1)
+            frac = (pi / denom_ph) + (i / max(n, 1)) / denom_ph
             frac = min(frac, 0.99)
             cn = phase_names_cn.get(phase_name, phase_name)
             progress_bar.progress(frac, text=f"评估 {cn}… ({i}/{n})")

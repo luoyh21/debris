@@ -168,61 +168,11 @@ def query_by_rcs(q: RCSQuery):
                      "独立专题库（GCAT / UNOOSA / Asterank / NASA TechPort）的入库条数。")
 def system_stats():
     from database.db import session_scope
-    from sqlalchemy import text
+    from database.system_snapshot import compute_system_snapshot
     try:
         with session_scope() as sess:
-            total = sess.execute(text("SELECT COUNT(*) FROM catalog_objects")).scalar() or 0
-            types = sess.execute(text(
-                "SELECT COALESCE(object_type,'UNKNOWN'), COUNT(*) "
-                "FROM catalog_objects GROUP BY 1 ORDER BY 2 DESC"
-            )).fetchall()
-            gp_count = sess.execute(text("SELECT COUNT(*) FROM gp_elements")).scalar() or 0
-            traj_count = sess.execute(text(
-                "SELECT COUNT(*) FROM trajectory_segments"
-            )).scalar() or 0
-
-            # External / supplementary sources — best-effort; 0 if table absent
-            external_sources: dict = {}
-            _ext_tables = [
-                ("ucs",       "external_ucs_satellites"),
-                ("esa_discos", "external_esa_discos"),
-                ("gcat_yearly_launches",        "external_yearly_launches"),
-                ("gcat_cumulative_onorbit",     "external_cumulative_onorbit"),
-                ("gcat_country_yearly_payload", "external_country_yearly_payload"),
-                ("gcat_onorbit_snapshot",       "external_onorbit_snapshot"),
-                ("unoosa",    "external_unoosa_launches"),
-                ("asterank",  "external_asterank"),
-                ("techport",  "external_techport"),
-            ]
-            for key, tbl in _ext_tables:
-                try:
-                    external_sources[key] = int(
-                        sess.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar() or 0
-                    )
-                except Exception:
-                    external_sources[key] = 0
-
-            # Unified view — may not exist on fresh init-db
-            try:
-                unified_total = int(
-                    sess.execute(text("SELECT COUNT(*) FROM v_unified_objects")).scalar() or 0
-                )
-                n_sources = int(sess.execute(text(
-                    "SELECT COUNT(DISTINCT primary_source) FROM v_unified_objects"
-                )).scalar() or 0)
-            except Exception:
-                unified_total = 0
-                n_sources = 0
-
-        return {
-            "catalog_total": total,
-            "by_type": {r[0]: r[1] for r in types},
-            "gp_elements_count": gp_count,
-            "trajectory_segments_count": traj_count,
-            "unified_total": unified_total,
-            "unified_primary_sources": n_sources,
-            "external_sources": external_sources,
-        }
+            data = compute_system_snapshot(sess)
+        return data
     except Exception as exc:
         return {"error": str(exc)}
 

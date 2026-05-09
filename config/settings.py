@@ -37,6 +37,14 @@ DB_NAME = (os.getenv("DB_NAME", "space_debris") or "space_debris").strip()
 DB_USER = (os.getenv("DB_USER", "postgres") or "postgres").strip()
 DB_PASSWORD = (os.getenv("DB_PASSWORD", "postgres") or "postgres").strip()
 
+# TCP / 连接池：VPN 断开或数据库不可达时尽快失败，避免界面长时间「卡在开始」
+DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "20"))
+DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "280"))
+# 单次 SQL 最大执行时间（秒）；不设环境变量则表示不限制（大型摄入脚本勿随意开启）
+_db_stmt = os.getenv("DB_STATEMENT_TIMEOUT_SEC", "").strip()
+DB_STATEMENT_TIMEOUT_SEC = int(_db_stmt) if _db_stmt else None
+
 DB_DSN = (
     f"postgresql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
     f"@{DB_HOST}:{DB_PORT}/{quote_plus(DB_NAME)}"

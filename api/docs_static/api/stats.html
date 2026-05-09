@@ -88,6 +88,14 @@
   <tr><td><code>trajectory_segments_count</code></td><td>int</td><td>轨迹段 (trajectory_segments) 表的总记录数</td></tr>
   <tr><td><code>unified_total</code></td><td>int</td><td>多源融合视图 <code>v_unified_objects</code> 去重后的空间目标总数（融合 Space-Track + UCS + ESA DISCOS）</td></tr>
   <tr><td><code>unified_primary_sources</code></td><td>int</td><td>多源融合视图中的 <code>primary_source</code> 种类数（正常为 3：Space-Track / UCS / ESA-DISCOS）</td></tr>
+  <tr><td><code>unified_payloads</code></td><td>int</td><td>融合视图中 PAYLOAD 数量（与仪表盘「有效载荷」卡片一致）</td></tr>
+  <tr><td><code>unified_debris</code></td><td>int</td><td>融合视图中 DEBRIS 数量（与「空间碎片」卡片一致）</td></tr>
+  <tr><td><code>unified_rocket_bodies</code></td><td>int</td><td>融合视图中 ROCKET BODY 数量（与「火箭箭体」卡片一致）</td></tr>
+  <tr><td><code>raw_catalog_rows_space_ucs_esa_sum</code></td><td>int</td><td><strong>三轨道目录源原始表行数之和</strong>（<code>catalog_objects</code> + <code>external_ucs_satellites</code> + <code>external_esa_discos</code>）；同一 NORAD 在多库重复出现时各行各计一条，故<strong>通常远大于</strong> <code>unified_total</code></td></tr>
+  <tr><td><code>ingestion_source_totals</code></td><td>object</td><td>上述三表各自的行数（键：<code>Space-Track</code> / <code>UCS</code> / <code>ESA-DISCOS</code>）</td></tr>
+  <tr><td><code>ingestion_typed_rows</code></td><td>array</td><td>摄入透视用明细：每项含数据源、目标类型、数量（与 Streamlit「多源数据摄入状态」矩阵同源）</td></tr>
+  <tr><td><code>unified_by_type</code></td><td>object</td><td>融合视图按 <code>object_type</code> 分组计数</td></tr>
+  <tr><td><code>generated_at_utc</code></td><td>string</td><td>本快照生成时间（ISO 8601，UTC）</td></tr>
   <tr><td><code>external_sources</code></td><td>object</td><td>各外部 / 专题数据源表的入库条数（见下表）</td></tr>
   <tr><td><code>external_sources.ucs</code></td><td>int</td><td>UCS 卫星数据库 (<code>external_ucs_satellites</code>) 条数</td></tr>
   <tr><td><code>external_sources.esa_discos</code></td><td>int</td><td>ESA DISCOS (<code>external_esa_discos</code>) 条数</td></tr>
@@ -97,7 +105,7 @@
   <tr><td><code>external_sources.gcat_onorbit_snapshot</code></td><td>int</td><td>GCAT 当前在轨快照 (<code>external_onorbit_snapshot</code>)</td></tr>
   <tr><td><code>external_sources.unoosa</code></td><td>int</td><td>UNOOSA 年度发射统计 (<code>external_unoosa_launches</code>)</td></tr>
   <tr><td><code>external_sources.asterank</code></td><td>int</td><td><strong>Asterank 小行星 / NEO 专题库</strong> (<code>external_asterank</code>) — 与地球在轨目标独立</td></tr>
-  <tr><td><code>external_sources.techport</code></td><td>int</td><td><strong>NASA TechPort 航天技术项目组合</strong> (<code>external_techport</code>) — 含 NASA 资助 / 跟踪的技术项目，TRL 1–9，约 20,000 条</td></tr>
+  <tr><td><code>external_sources.techport</code></td><td>int</td><td><strong>NASA TechPort 航天技术项目组合</strong> (<code>external_techport</code>) — 含 NASA 资助 / 跟踪的技术项目，TRL 1–9；当前库 <span data-live-stat="external_sources.techport">—</span> 条（随官方公开数据变化）</td></tr>
 </table>
 
 <h2>curl 示例</h2>
@@ -116,6 +124,15 @@
   "trajectory_segments_count": 245678,
   "unified_total": 69234,
   "unified_primary_sources": 3,
+  "unified_payloads": 15289,
+  "unified_debris": 32156,
+  "unified_rocket_bodies": 4127,
+  "raw_catalog_rows_space_ucs_esa_sum": 178902,
+  "ingestion_source_totals": {
+    "Space-Track": 62417,
+    "UCS": 7560,
+    "ESA-DISCOS": 10925
+  },
   "external_sources": {
     "ucs": 7560,
     "esa_discos": 10000,
@@ -141,7 +158,7 @@
     <tr><td><code>by_type.DEBRIS</code></td><td>通常占总数 &gt; 40%</td><td>碎片是最大的目标类别</td></tr>
     <tr><td><code>unified_total</code></td><td>应 ≥ <code>catalog_total</code></td><td>若为 0，通常是 <code>v_unified_objects</code> 物化视图未创建，运行 <code>python run.py refresh-views</code> 即可</td></tr>
     <tr><td><code>external_sources.asterank</code></td><td>数千条（随 <code>--limit</code> 而定）</td><td>若为 0 说明尚未运行 <code>python scripts/ingest_asterank.py</code></td></tr>
-    <tr><td><code>external_sources.techport</code></td><td>~20,000（随 NASA TechPort 当前公开项目数）</td><td>若为 0 说明尚未运行 <code>python scripts/ingest_techport.py</code>；若数量明显偏低可能是被 429 限流或网络中断，重跑会断点续传</td></tr>
+    <tr><td><code>external_sources.techport</code></td><td>非 0 即正常（典型一万～数万条，以上表脚本填充为准）</td><td>若为 0 说明尚未运行 <code>python scripts/ingest_techport.py</code>；若数量明显偏低可能是被 429 限流或网络中断，重跑会断点续传</td></tr>
   </table>
 </div>
 
@@ -150,6 +167,7 @@
 </div>
 
 </div>
+<script src="/docs/live-stats.js"></script>
 <script src="/docs/toc.js"></script>
 </body>
 </html>
