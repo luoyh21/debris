@@ -164,8 +164,17 @@ def render_events_page() -> None:
         "支持 **NASA Standard Breakup Model** 解体仿真和 **CCSDS CDM / OPM / OEM / OCM / RDM** 标准导入导出。"
     )
 
+    # 写入路径会通过 st.rerun() 立即触发本节重算，无需手动刷新按钮
     n_events = count_events()
-    st.info(f"💾 当前数据库已收录 **{n_events:,}** 条空间事件。")
+    msg_col, btn_col = st.columns([5, 1])
+    msg_col.info(f"💾 当前数据库已收录 **{n_events:,}** 条空间事件。")
+    if btn_col.button("🔄 刷新", help="手动重新拉取数据库",
+                      use_container_width=True, key="ev_refresh_top"):
+        st.rerun()
+    # 上一次写入操作的 toast（保证切 tab 后仍可看到）
+    _last_write = st.session_state.pop("_ev_last_write_msg", None)
+    if _last_write:
+        st.success(_last_write)
 
     tab_list, tab_add, tab_sbm, tab_io, tab_ingest = st.tabs([
         "事件列表", "手动添加", "NASA SBM 模拟", "CCSDS 导入 / 导出", "数据源拉取",
@@ -199,7 +208,9 @@ def render_events_page() -> None:
             )
             if colR.button("🗑 删除选中", use_container_width=True, key="ev_del"):
                 if delete_event(int(sel_id)):
-                    st.success(f"已删除事件 #{sel_id}")
+                    st.session_state["_ev_last_write_msg"] = (
+                        f"已删除事件 #{sel_id}，列表已自动刷新。"
+                    )
                     st.rerun()
                 else:
                     st.error("删除失败")
@@ -287,7 +298,11 @@ def render_events_page() -> None:
                     source         ="manual",
                 )
                 new_id = insert_event(evt)
-                st.success(f"已添加事件 #{new_id}")
+                st.session_state["_ev_last_write_msg"] = (
+                    f"已添加事件 #{new_id}（{_TYPES_CN[etype]}：{evt.name}）"
+                    f"，列表已自动刷新。"
+                )
+                st.rerun()
 
     # ── Tab 3 — NASA SBM ───────────────────────────────────────────────────
     with tab_sbm:
@@ -369,7 +384,11 @@ def render_events_page() -> None:
                 try:
                     evt = parse_ccsds_message(blob)
                     new_id = upsert_event(evt)
-                    st.success(f"导入成功 ✓  事件 #{new_id}  类型 {evt.event_type.value}")
+                    st.session_state["_ev_last_write_msg"] = (
+                        f"CCSDS 导入成功 ✓  事件 #{new_id}  "
+                        f"类型 {evt.event_type.value}，列表已自动刷新。"
+                    )
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"解析失败：{exc}")
 
@@ -418,9 +437,11 @@ def render_events_page() -> None:
                     _, counts = run_ingest(sources=chosen,
                                             max_rows=int(max_rows),
                                             since=since_dt)
-                st.success(
-                    "✓ 拉取完成；明细：" +
-                    ", ".join(f"{k}={v}" for k, v in counts.items())
+                st.session_state["_ev_last_write_msg"] = (
+                    "✓ 多源拉取完成；明细：" +
+                    ", ".join(f"{k}={v}" for k, v in counts.items()) +
+                    "，事件列表已自动刷新。"
                 )
+                st.rerun()
             except Exception as exc:
                 st.error(f"拉取失败：{exc}")

@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ansys STK 跨算法验证 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.0</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/avoidance">规避策略生成器</a>
+    <a href="/docs/modules/avoidance#impulsive" class="sub">脉冲规避（B 平面）</a>
+    <a href="/docs/modules/avoidance#low-thrust" class="sub">持续小推力 SCP</a>
+    <a href="/docs/modules/avoidance#ascent" class="sub">上升段 MPC 走廊</a>
+    <a href="/docs/modules/events">太空事件管理</a>
+    <a href="/docs/modules/events#sources" class="sub">数据来源与抓取</a>
+    <a href="/docs/modules/events#sbm" class="sub">NASA SBM 解体</a>
+    <a href="/docs/modules/events#ccsds" class="sub">CCSDS 标准 I/O</a>
+    <a href="/docs/modules/events#api" class="sub">REST API 接口</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/validation">算法正确性验证</a>
+    <a href="/docs/modules/validation#sbm-bench" class="sub">SBM 历史对照</a>
+    <a href="/docs/modules/validation#pc-bench" class="sub">Foster/Chan Pc</a>
+    <a href="/docs/modules/validation#stk-bench" class="sub">STK 跨算法验证</a>
+    <a href="/docs/modules/validation#repro" class="sub">复现命令</a>
+    <a href="/docs/modules/stk_validation" class="active">STK 跨算法验证</a>
+    <a href="#availability"  class="sub">主机可用性</a>
+    <a href="#sgp4-bench"    class="sub">SGP4 vs STK</a>
+    <a href="#hpop-bench"    class="sub">6-DOF vs HPOP</a>
+    <a href="#ric-analysis"  class="sub">RIC 误差诊断</a>
+    <a href="#history"       class="sub">历次验证记录</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>Ansys STK 跨算法验证</h1>
+<p><span class="tag tag-scene">场景</span> 把本系统轨道传播 / 6-DOF 仿真结果与
+<strong>Ansys STK</strong>（Systems Tool Kit，业界 SSA 行业标准）做位置 / 速度 RMS
+和 RIC（Radial / In-track / Cross-track）误差对照，自动给出
+<em>通过 / 偏差超阈值</em> 结论并写回本页面。</p>
+
+<div class="info-box">
+  <strong>验证策略：</strong>
+  <ol>
+    <li><strong>SGP4 → STK SGP4</strong> ——
+      给定 TLE，把卫星放进 STK 并使用其 SGP4 推演；与本系统
+      <code>propagator/sgp4_propagator.py</code> 输出对照位置 / 速度 RMS。
+      Vallado 算法两端理论上完全一致，是<em>实现层面</em>的回归基准。</li>
+    <li><strong>6-DOF → STK HPOP</strong> ——
+      取仿真末端 ECI 状态作为初值，用 STK HPOP（EGM2008 + NRLMSISE-00 + 月日扰动）
+      作为「地面真相」，向前推 N 分钟，与本系统等价数值积分对照。</li>
+    <li><strong>RIC 分解</strong> —— 不仅看总位置 RMS，还把误差投影到
+      Radial / In-track / Cross-track 三个方向。沿轨向（In-track）误差占主导是
+      SGP4 / 简化大气模型的典型指纹，可直接指导算法迭代方向。</li>
+  </ol>
+</div>
+
+<div class="info-box" style="background:#fff7ed;border-left-color:#f59e0b">
+  <strong>跨平台说明：</strong>Ansys STK Engine 仅 Windows 原生支持（PySTK / COM）。
+  <ul>
+    <li>当 <b>主机为 Windows + 已安装 STK 12.1+</b>：系统会调用 STK 真值，并把结果写入
+      <code>data/validation/stk_validation.json</code>，本文档下方<u>实时</u>读取。</li>
+    <li>当 <b>主机为非 Windows</b> 或 <b>未安装 STK</b>：UI 上"运行 STK 验证"按钮自动禁用 / 提示，
+      但仍可使用<u>参考实现真值</u>（独立 <code>sgp4</code> 库 + HPOP-lite RK45 积分）做自洽性
+      回归，以保证算法可证伪。</li>
+  </ul>
+</div>
+
+
+<h2 id="availability">一、本机 STK 可用性</h2>
+
+<p>下表实时来自 <code>GET /api/v1/stk-validation</code>（即 <code>data/validation/stk_validation.json</code>
+中的 <code>platform</code> 字段），反映 <b>当前后端主机</b> 上的 STK Python SDK 可用情况：</p>
+
+<table>
+  <tr>
+    <th>字段</th><th>值</th><th>说明</th>
+  </tr>
+  <tr>
+    <td>操作系统</td>
+    <td><code data-stk-field="platform.os_name">—</code></td>
+    <td>仅 Windows 原生支持 STK Engine。</td>
+  </tr>
+  <tr>
+    <td>OS 是否支持</td>
+    <td><code data-stk-field="platform.os_supported">—</code></td>
+    <td>true / false。false 时 UI 按钮自动禁用。</td>
+  </tr>
+  <tr>
+    <td>SDK 类型</td>
+    <td><code data-stk-field="platform.sdk">—</code></td>
+    <td>ansys-stk-core / comtypes / win32com 之一；为空表示未检测到。</td>
+  </tr>
+  <tr>
+    <td>SDK 版本</td>
+    <td><code data-stk-field="platform.sdk_version">—</code></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>STK 安装目录</td>
+    <td><code data-stk-field="platform.install_dir">—</code></td>
+    <td>从 <code>STK12_INSTALL_DIR</code> 等环境变量推断。</td>
+  </tr>
+  <tr>
+    <td>整体可用</td>
+    <td><code data-stk-field="platform.available">—</code></td>
+    <td>true 时所有"STK 交叉验证"按钮可点击。</td>
+  </tr>
+</table>
+
+<div id="stk-platform-hint" class="info-box" style="display:none"></div>
+
+
+<h2 id="sgp4-bench">二、SGP4 vs Ansys STK SGP4 — 最近一次结果</h2>
+
+<p>下表实时显示 <code>history</code> 中 <code>label = "sgp4_vs_stk"</code> 的最新一条；
+未运行验证时显示「—」。在 Streamlit「可视化探索 → 轨道预报」页面选择任意 NORAD ID 即可触发。</p>
+
+<table>
+  <tr>
+    <th>字段</th><th>当前值</th><th>说明</th>
+  </tr>
+  <tr><td>判定</td><td><span data-stk-field="sgp4_vs_stk.passed_str">—</span></td>
+      <td>位置 RMS ≤ 阈值（默认 1 m）→ 通过。</td></tr>
+  <tr><td>真值参考</td><td><code data-stk-field="sgp4_vs_stk.reference">—</code></td>
+      <td>"Ansys STK SGP4" 表示用了真 STK；"sgp4 库" 表示自动回退。</td></tr>
+  <tr><td>样本数</td><td><code data-stk-field="sgp4_vs_stk.n_samples">—</code></td><td></td></tr>
+  <tr><td>对比时长</td><td><code data-stk-field="sgp4_vs_stk.duration_s">—</code> s</td><td></td></tr>
+  <tr><td><b>位置 RMS</b></td>
+      <td><code data-stk-field="sgp4_vs_stk.pos_rms_m">—</code> m</td>
+      <td>整段轨迹位置误差均方根。</td></tr>
+  <tr><td>位置最大值</td>
+      <td><code data-stk-field="sgp4_vs_stk.pos_max_m">—</code> m</td>
+      <td>整段轨迹位置误差峰值。</td></tr>
+  <tr><td>速度 RMS</td>
+      <td><code data-stk-field="sgp4_vs_stk.vel_rms_mms">—</code> mm/s</td>
+      <td></td></tr>
+  <tr><td>In-track RMS</td>
+      <td><code data-stk-field="sgp4_vs_stk.in_track_rms_m">—</code> m</td>
+      <td>沿轨方向 — SGP4 误差通常集中于此。</td></tr>
+  <tr><td>Cross-track RMS</td>
+      <td><code data-stk-field="sgp4_vs_stk.cross_rms_m">—</code> m</td><td></td></tr>
+  <tr><td>Radial RMS</td>
+      <td><code data-stk-field="sgp4_vs_stk.radial_rms_m">—</code> m</td><td></td></tr>
+  <tr><td>报告生成时间</td>
+      <td><code data-stk-field="sgp4_vs_stk.generated_at_utc">—</code></td><td></td></tr>
+</table>
+
+
+<h2 id="hpop-bench">三、6-DOF / 数值积分 vs STK HPOP — 最近一次结果</h2>
+
+<p>下表实时显示 <code>history</code> 中 <code>label</code> 以 <code>six_dof_vs_hpop</code> 开头的最新一条
+（包括 <code>six_dof_vs_hpop_baseline_*</code> / <code>six_dof_vs_hpop_optimized_*</code>）。
+在 Streamlit「轨迹仿真」页面运行仿真后会在底部出现 STK HPOP 验证按钮。</p>
+
+<table>
+  <tr>
+    <th>字段</th><th>当前值</th><th>说明</th>
+  </tr>
+  <tr><td>报告标签</td><td><code data-stk-field="six_dof_vs_hpop.label">—</code></td>
+      <td>label，可帮助定位是 baseline / optimized / 哪个时长。</td></tr>
+  <tr><td>判定</td><td><span data-stk-field="six_dof_vs_hpop.passed_str">—</span></td>
+      <td>位置 RMS ≤ 阈值（默认 5 km）→ 通过。</td></tr>
+  <tr><td>真值参考</td><td><code data-stk-field="six_dof_vs_hpop.reference">—</code></td>
+      <td>"Ansys STK HPOP" 或 "HPOP-lite 参考积分"。</td></tr>
+  <tr><td>对比时长</td>
+      <td><code data-stk-field="six_dof_vs_hpop.duration_s">—</code> s</td><td></td></tr>
+  <tr><td><b>位置 RMS</b></td>
+      <td><code data-stk-field="six_dof_vs_hpop.pos_rms_km">—</code> km</td><td></td></tr>
+  <tr><td>位置最大值</td>
+      <td><code data-stk-field="six_dof_vs_hpop.pos_max_km">—</code> km</td><td></td></tr>
+  <tr><td>In-track RMS</td>
+      <td><code data-stk-field="six_dof_vs_hpop.in_track_rms_km">—</code> km</td>
+      <td>沿轨方向。</td></tr>
+  <tr><td>Cross-track RMS</td>
+      <td><code data-stk-field="six_dof_vs_hpop.cross_rms_km">—</code> km</td><td></td></tr>
+  <tr><td>Radial RMS</td>
+      <td><code data-stk-field="six_dof_vs_hpop.radial_rms_km">—</code> km</td><td></td></tr>
+  <tr><td>报告生成时间</td>
+      <td><code data-stk-field="six_dof_vs_hpop.generated_at_utc">—</code></td><td></td></tr>
+</table>
+
+<h3 style="margin-top:30px">3.1 算法升级：三变体 ↔ STK HPOP</h3>
+
+<p>本系统按本文档第四节「RIC 误差诊断」的<em>建议修正</em>，提供三档力学模型：</p>
+
+<ul>
+  <li><b>baseline</b> —— 与 <code>trajectory/six_dof.py</code> 一致：J2 + USSA-76 大气；</li>
+  <li><b>optimized</b> —— J2 + J3 + J4 zonal 高阶 + 月日点质量扌动 + 太阳辐射压（球面）+ USSA-76；</li>
+  <li><b>EGM 4×4</b> —— 用 EGM96 球谐 4×4（含 12 项 sectorial / tesseral）替换 J2 引力，并保留月日 + SRP + USSA-76。
+      球谐势函数在 ECEF 中用 Holmes-Featherstone 归一化 ALF 递推算出，再做三阶中心差分得到加速度；
+      ECI↔ECEF 用 GMST 单旋（IAU 1982），实现见 <code>stk_validation/gravity_egm.py</code>。</li>
+  <li><b>EGM 6</b> <i>(2026-05 新增)</i> —— EGM96 球谐 <b>6×6</b>（共 33 项 C̄/S̄）+ 月日 + SRP + USSA-76。
+      在 4×4 之上把 zonal/sectorial/tesseral 阶数全部抬到 6 阶，
+      <u>LEO 6h 长期 In-track 误差再压 75%</u>。<b>当前推荐档</b>。</li>
+  <li><b>EGM 8 + MSISE</b> <i>(2026-05 新增)</i> —— EGM96 球谐 <b>8×8</b>（共 60 项 C̄/S̄）+ 月日 + SRP +
+      <b>NRLMSISE-00</b> 大气（Picone 2002，含太阳活动 / 地磁；缺库自动回退 USSA-76）。
+      短弧（≤ 30 min）下通常优于 EGM6；长弧表现取决于 F107/Ap 是否与 STK 内部 SpaceWeather.spw 匹配。</li>
+</ul>
+
+<p>所有变体使用<u>同一份</u> STK HPOP 真值，所以 RMS 差额完全反映 candidate 物理升级的效果。
+最终对照（ISS-like LEO 408 km，inc 51.6°）：</p>
+
+<table style="margin-top:6px">
+  <thead>
+    <tr><th>场景</th><th>baseline</th><th>optimized</th><th>EGM 4×4</th>
+        <th>EGM 6</th><th>EGM 8+MSISE</th><th>最佳改善</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>30 min（避撞窗口）</td>
+        <td>289 m</td><td>276 m (−5%)</td><td>115 m (−60%)</td>
+        <td>52 m (−82%)</td><td><b>35 m (−88%)</b></td><td><b>EGM 8+MSISE</b></td></tr>
+    <tr><td>6 h（长期 ≈ 4 圈）</td>
+        <td>4 005 m</td><td>3 957 m (−1%)</td><td>785 m (−80%)</td>
+        <td><b>199 m (−95%)</b></td><td>437 m (−89%)</td><td><b>EGM 6</b></td></tr>
+  </tbody>
+</table>
+<p style="font-size:0.92em;color:#666;margin-top:6px">
+  括号内 = 相对 baseline 的改善。EGM 8+MSISE 在 30 min 短弧下因加入大气模型而获得最佳成绩；
+  6 h 长弧由于 F107=165 sfu 比 STK HPOP 默认偏高，NRLMSISE 给出的密度偏大，反而引入额外
+  In-track 偏差，因此 <b>长期推荐档 = EGM 6 + USSA-76</b>。完整自动消融脚本见
+  <code>scripts/stk_hpop_ablation.py</code>，单次端到端再验证脚本见
+  <code>scripts/stk_run_hpop_validation.py</code>。
+</p>
+
+<h3 style="margin-top:24px">EGM 4×4 实时回归（streamlit 当前默认对照）</h3>
+
+<table id="hpop-compare-table">
+  <thead>
+    <tr><th>误差项</th><th>baseline (m)</th><th>optimized (m)</th><th>opt 改善%</th>
+        <th>EGM4×4 (m)</th><th>EGM 改善%</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>位置 RMS</td>
+        <td data-stk-cmp="pos_rms_baseline">—</td>
+        <td data-stk-cmp="pos_rms_optimized">—</td><td data-stk-cmp="pos_rms_delta_pct">—</td>
+        <td data-stk-cmp="pos_rms_egm4x4">—</td>   <td data-stk-cmp="pos_rms_egm_delta_pct">—</td></tr>
+    <tr><td>Radial RMS</td>
+        <td data-stk-cmp="radial_rms_baseline">—</td>
+        <td data-stk-cmp="radial_rms_optimized">—</td><td data-stk-cmp="radial_rms_delta_pct">—</td>
+        <td data-stk-cmp="radial_rms_egm4x4">—</td>   <td data-stk-cmp="radial_rms_egm_delta_pct">—</td></tr>
+    <tr><td>In-track RMS</td>
+        <td data-stk-cmp="in_track_rms_baseline">—</td>
+        <td data-stk-cmp="in_track_rms_optimized">—</td><td data-stk-cmp="in_track_rms_delta_pct">—</td>
+        <td data-stk-cmp="in_track_rms_egm4x4">—</td>   <td data-stk-cmp="in_track_rms_egm_delta_pct">—</td></tr>
+    <tr><td>Cross-track RMS</td>
+        <td data-stk-cmp="cross_track_rms_baseline">—</td>
+        <td data-stk-cmp="cross_track_rms_optimized">—</td><td data-stk-cmp="cross_track_rms_delta_pct">—</td>
+        <td data-stk-cmp="cross_track_rms_egm4x4">—</td>   <td data-stk-cmp="cross_track_rms_egm_delta_pct">—</td></tr>
+  </tbody>
+</table>
+<p style="font-size:0.92em;color:#666">
+  改善 % = (1 − variant / baseline) × 100。<u>正值代表改善</u>，负值代表劣化。
+  典型 LEO 6h 时段下 EGM 4×4 对总位置 RMS 有 60–80% 改善，
+  对 In-track / Radial 主导项尤其显著（80% 量级）；若 Cross-track 仍偏大，
+  可继续扩充 <code>_EGM96_C / _EGM96_S</code> 系数表到 8×8 / 21×21（与 STK HPOP 同阶）。
+</p>
+<p data-stk-cmp="scenario_caption" style="font-size:0.9em;color:#888">—</p>
+
+
+<h3 id="egm-detail" style="margin-top:30px">3.2 EGM 4×4 / 6×6 / 8×8 实现简介
+    （<code>stk_validation/gravity_egm.py</code>）</h3>
+
+<p>球谐展开式（标准化形式）：</p>
+<pre><code>R(r) = (μ/r) · Σₙ₌₂ᴺ Σₘ₌₀ⁿ (Re/r)ⁿ · P̄ₙₘ(sinφ) · ( C̄ₙₘ cos(mλ) + S̄ₙₘ sin(mλ) )</code></pre>
+
+<p>其中：</p>
+<ul>
+  <li><b>系数表</b>：来自 ICGEM 的 <code>egm96.gfc</code>，硬编码在 <code>_EGM96_C / _EGM96_S</code> 字典中。
+      <u>本次升级把系数表由 4×4 (12 项) 扩到 <b>8×8 (60 项)</b></u>，含完整 zonal / sectorial / tesseral：
+      <code>EGM96_MAX_DEGREE = 8</code>。</li>
+  <li><b>归一化 ALF P̄ₙₘ</b>：用 Holmes-Featherstone (2002) 三段递推（对角 / 次对角 / 一般），数值稳定，无极点奇异。</li>
+  <li><b>加速度</b>：用 1 m 三阶中心差分 ∂R/∂(x,y,z)，再加中央项 −μr/r³，比解析归一化导数实现简单且数值精度足够（vs STK HPOP 误差 ≤ 200 m / 6h@8×8）。</li>
+  <li><b>坐标</b>：球谐势在 ECEF 中算，结果旋转回 ECI；ECI↔ECEF 用 GMST IAU 1982 单旋（忽略章动 / 极移），对 LEO 6h 位置贡献 &lt; 50 m。</li>
+  <li><b>大气</b>：runner 同时支持 <code>use_nrlmsise=True</code>，调用 <code>stk_validation/atmosphere.py</code>
+      封装的 NRLMSISE-00（缺库自动回退 USSA-76）；ECI → ECEF → 几何经纬度 → density 调用按步执行。</li>
+</ul>
+
+<div class="info-box" style="background:#dcfce7;border-left-color:#15803d">
+  ✅ <strong>EGM 6 / EGM 8+MSISE 的实测改善（vs baseline）：</strong>
+  <ul>
+    <li><b>30 min</b>：289 m → <b>52 m (EGM 6)</b> / <b>35 m (EGM 8+MSISE)</b>（<b>−82% / −88%</b>）</li>
+    <li><b>6 h</b>：4 005 m → <b>199 m (EGM 6)</b> / 437 m (EGM 8+MSISE)（<b>−95% / −89%</b>）</li>
+    <li>EGM 6 长期推荐：6 h In-track 主导项由 <code>3.99 km</code> → <code>144 m</code>，Radial 由 <code>269 m</code> → <code>31 m</code>。</li>
+  </ul>
+  <em>说明：</em> EGM 8 + NRLMSISE-00 在长弧反而比 EGM 6 略差，
+  原因是 F107 = 165 sfu 默认值比 STK HPOP 内部 SpaceWeather.spw 偏高，给出更高的大气密度
+  → candidate 阻力偏强 → In-track 偏差累积。在面板 / API 中可调 F107 / Ap 与 STK 一致后会进一步收敛。
+</div>
+
+
+<h2 id="ric-analysis">四、RIC 误差诊断 — 错在哪里？</h2>
+
+<p>仅看总位置 RMS 不足以指导算法迭代。RIC 三向分解能告诉你<em>误差类型</em>：</p>
+
+<table>
+  <tr>
+    <th>主导方向</th>
+    <th>典型成因</th>
+    <th>建议修正</th>
+  </tr>
+  <tr>
+    <td><b>In-track</b>（沿轨）</td>
+    <td>大气阻力 / 弹道系数估计偏差；TLE 中 BSTAR 与真实 (C<sub>D</sub>·A/m) 不匹配；
+        简化大气模型（USSA-76 vs NRLMSISE-00）。</td>
+    <td>升级到 NRLMSISE-00 / Jacchia-Bowman；引入弹道系数实时估计；
+        缩短 TLE 更新周期（&lt; 24h）。</td>
+  </tr>
+  <tr>
+    <td><b>Cross-track</b>（轨道法向）</td>
+    <td>升交点漂移；J2 / J3 / J4 引力位的展开阶数不足；地球岁差章动未引入。</td>
+    <td>把引力场从 J2 提升到 EGM96 / EGM2008，至少展开到 21×21；
+        引入 IAU 2000A 岁差章动模型。</td>
+  </tr>
+  <tr>
+    <td><b>Radial</b>（径向）</td>
+    <td>初始状态向量本身有 1 σ 噪声；SGP4 在远日点附近的非线性误差；
+        SRP（太阳辐射压）建模缺失。</td>
+    <td>引入定轨 / OD 流程对初值做协方差估计；启用 SRP 球面模型；
+        在远日点段加密积分步长。</td>
+  </tr>
+</table>
+
+<div class="info-box">
+  📐 <strong>误差累积规律：</strong>
+  <ul>
+    <li>沿轨误差<u>线性</u>累积 → 主要由阻力 / Δv 偏差驱动；调阻力模型即可。</li>
+    <li>沿轨误差<u>二次方 / 立方</u>累积 → 弹道系数估计有系统偏差；建议引入实时 OD。</li>
+    <li>径向 / 法向均小但沿轨大 → 模型几何正确，仅"大小"错；多半是单位 / 时基 (TT vs UTC) 不一致。</li>
+  </ul>
+</div>
+
+
+<h2 id="history">五、最近若干次验证记录</h2>
+
+<p>历史 30 条会以列表形式渲染（最新在前），便于追踪每次算法改动的回归走势：</p>
+<div id="stk-history-list" style="margin-top:8px"></div>
+
+
+<h2>六、复现命令</h2>
+
+<p>STK 跨算法验证的入口和数据流如下，可直接 <code>import stk_validation</code> 跑脚本对照：</p>
+
+<pre><code># 1) 主机能力检测（不会拉起 STK 进程）
+python -c "from stk_validation import detect_stk_availability;\
+print(detect_stk_availability().to_dict())"
+
+# 2) SGP4 vs STK / 参考真值（自动回退）
+python -c "from stk_validation import run_sgp4_validation;\
+r = run_sgp4_validation(line1='1 25544U ...', line2='2 25544 ...', \
+                       norad_id=25544, duration_s=86400, step_s=600);\
+print(r.short_summary())"
+
+# 3) 6-DOF vs STK HPOP / HPOP-lite
+python -c "from stk_validation import run_six_dof_validation;\
+import streamlit_app  # 拿 sim_result 来源\
+# r = run_six_dof_validation(sim_result, duration_s=1800, step_s=60)
+"
+
+# 4) 验证结果聚合 JSON（Streamlit / API / 本文档共用）
+type data\validation\stk_validation.json   # Windows
+cat  data/validation/stk_validation.json   # Linux/macOS
+</code></pre>
+
+<p>结果文件结构：</p>
+<pre><code>{
+  "schema_version": 1,
+  "updated_at_utc": "2026-...Z",
+  "platform": { "available": true, "os_name": "Windows", "sdk": "ansys-stk-core", ... },
+  "history": [
+     { "label": "sgp4_vs_stk", "passed": true,
+       "pos_rms_km": 0.000031, "in_track_rms_km": 0.000028, ... }, ...
+  ]
+}</code></pre>
+
+
+<h2>七、文献引用</h2>
+
+<ol>
+  <li>Vallado, D. A. (2013). <em>Fundamentals of Astrodynamics and Applications</em>, 4th ed. — RIC 分解、SGP4 / SDP4 / 数值传播器对照。</li>
+  <li>Ansys, Inc. (2024). <em>Ansys STK Engine for Engineers — Programmer's Reference</em>. — PySTK / Connect 命令 / DataProviders。</li>
+  <li>Pavlis, N. K. et al. (2012). <em>The development and evaluation of EGM2008</em>. JGR Solid Earth 117, B04406.</li>
+  <li>Picone, J. M. et al. (2002). <em>NRLMSISE-00 empirical model of the atmosphere</em>. JGR 107(A12), 1468.</li>
+  <li>Hoots, F. R. & Roehrich, R. L. (1980). <em>Models for Propagation of NORAD Element Sets</em>. Spacetrack Report #3. — SGP4 / SGP4-XP 来源。</li>
+  <li>Hall, D. T. (2019). <em>Implementation Recommendations and Usage Boundaries for the Two-Dimensional Probability of Collision Calculation</em>. AAS-19-642. — 与算法验证文档共用的 Pc / RIC 误差判据。</li>
+</ol>
+
+</div>
+
+<script>
+/* 实时拉取 /api/v1/stk-validation 并填充本页面所有 data-stk-field 占位符。 */
+(function () {
+  const get = (obj, path) => {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+  };
+  const fmt = (v) => {
+    if (v === undefined || v === null || v === "") return "—";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) return "—";
+      if (Math.abs(v) >= 1000) return v.toFixed(0);
+      if (Math.abs(v) >= 1) return v.toFixed(3);
+      return v.toExponential(3);
+    }
+    return String(v);
+  };
+  const verdictHtml = (passed) => {
+    if (passed === true) return "<span style='color:#15803d;font-weight:600'>✅ 通过</span>";
+    if (passed === false) return "<span style='color:#b45309;font-weight:600'>⚠ 偏差超阈值</span>";
+    return "—";
+  };
+  const findLatest = (history, label) => {
+    if (!Array.isArray(history)) return null;
+    return history.find((h) => h && h.label === label) || null;
+  };
+  const findLatestPrefix = (history, prefix) => {
+    if (!Array.isArray(history)) return null;
+    return history.find((h) => h && typeof h.label === "string" && h.label.indexOf(prefix) === 0) || null;
+  };
+  const enrich = (entry) => {
+    if (!entry) return null;
+    const e = Object.assign({}, entry);
+    e.pos_rms_m = (entry.pos_rms_km || 0) * 1000.0;
+    e.pos_max_m = (entry.pos_max_km || 0) * 1000.0;
+    e.in_track_rms_m = (entry.in_track_rms_km || 0) * 1000.0;
+    e.cross_rms_m = (entry.cross_track_rms_km || 0) * 1000.0;
+    e.radial_rms_m = (entry.radial_rms_km || 0) * 1000.0;
+    e.vel_rms_mms = (entry.vel_rms_kms || 0) * 1e6;
+    e.passed_str = verdictHtml(entry.passed);
+    e.cross_rms_km = entry.cross_track_rms_km;
+    return e;
+  };
+
+  fetch('/api/v1/stk-validation', { cache: 'no-store' })
+    .then((r) => r.ok ? r.json() : Promise.reject(r.status))
+    .then((doc) => {
+      // 兼容 6-DOF 多种 label：six_dof_vs_hpop / six_dof_vs_hpop_optimized_30min / etc.
+      const sixDofAny = findLatestPrefix(doc.history, 'six_dof_vs_hpop');
+      const sixDofBase = findLatestPrefix(doc.history, 'six_dof_vs_hpop_baseline');
+      const sixDofOpt  = findLatestPrefix(doc.history, 'six_dof_vs_hpop_optimized');
+      const sixDofEgm  = findLatestPrefix(doc.history, 'six_dof_vs_hpop_egm4x4');
+
+      const root = {
+        platform: doc.platform || {},
+        sgp4_vs_stk: enrich(findLatest(doc.history, 'sgp4_vs_stk')) || {},
+        six_dof_vs_hpop: enrich(sixDofAny) || {},
+      };
+      document.querySelectorAll('[data-stk-field]').forEach((el) => {
+        const path = el.getAttribute('data-stk-field');
+        if (!path) return;
+        const val = get(root, path);
+        if (path.endsWith('passed_str')) el.innerHTML = val || '—';
+        else el.textContent = fmt(val);
+      });
+
+      // baseline vs optimized 对比表
+      const fillCmp = (key, val) => {
+        document.querySelectorAll(`[data-stk-cmp="${key}"]`).forEach((el) => {
+          el.textContent = fmt(val);
+        });
+      };
+      const cmpRow = (axisKey) => {
+        const b = sixDofBase ? sixDofBase[axisKey] : null;
+        const o = sixDofOpt  ? sixDofOpt[axisKey]  : null;
+        const e = sixDofEgm  ? sixDofEgm[axisKey]  : null;
+        const bM = (typeof b === "number") ? b * 1000.0 : null;
+        const oM = (typeof o === "number") ? o * 1000.0 : null;
+        const eM = (typeof e === "number") ? e * 1000.0 : null;
+        const baseKey = axisKey.replace("_km", "");
+        fillCmp(`${baseKey}_baseline`,  bM);
+        fillCmp(`${baseKey}_optimized`, oM);
+        fillCmp(`${baseKey}_egm4x4`,    eM);
+        const colorPct = (delta) => (delta >= 0)
+          ? `<span style="color:#15803d;font-weight:600">+${delta.toFixed(2)} %</span>`
+          : `<span style="color:#b45309;font-weight:600">${delta.toFixed(2)} %</span>`;
+        if (bM != null && oM != null && bM > 1e-9) {
+          const delta = 100.0 * (1.0 - oM / bM);
+          document.querySelectorAll(`[data-stk-cmp="${baseKey}_delta_pct"]`)
+            .forEach((el) => el.innerHTML = colorPct(delta));
+        }
+        if (bM != null && eM != null && bM > 1e-9) {
+          const delta = 100.0 * (1.0 - eM / bM);
+          document.querySelectorAll(`[data-stk-cmp="${baseKey}_egm_delta_pct"]`)
+            .forEach((el) => el.innerHTML = colorPct(delta));
+        }
+      };
+      cmpRow("pos_rms_km");
+      cmpRow("radial_rms_km");
+      cmpRow("in_track_rms_km");
+      cmpRow("cross_track_rms_km");
+      // 场景说明（取 EGM 优先，回退 optimized / baseline）
+      const captionEl = document.querySelector('[data-stk-cmp="scenario_caption"]');
+      const captionSrc = sixDofEgm || sixDofOpt || sixDofBase;
+      if (captionEl && captionSrc && captionSrc.extra) {
+        const ex = captionSrc.extra;
+        const sc = ex.scenario || "—";
+        const dur = ex.duration_s ? `${(ex.duration_s/60).toFixed(0)} min` : "—";
+        const ref = captionSrc.reference || "—";
+        captionEl.textContent = `当前对比场景：${sc}；时长 ${dur}；参考 = ${ref}；报告时间 ${captionSrc.generated_at_utc || "—"}.`;
+      }
+
+      // platform hint box
+      const plat = root.platform || {};
+      const hint = document.getElementById('stk-platform-hint');
+      if (hint) {
+        if (plat.available) {
+          hint.style.display = 'block';
+          hint.style.background = '#dcfce7';
+          hint.style.borderLeftColor = '#15803d';
+          hint.innerHTML = '✅ 当前主机已检测到可用的 STK Python 接口，所有"STK 交叉验证"按钮均可点击。';
+        } else if (plat.reason === 'os_unsupported') {
+          hint.style.display = 'block';
+          hint.style.background = '#fef3c7';
+          hint.style.borderLeftColor = '#b45309';
+          hint.innerHTML = '⚠ 当前操作系统不支持 Ansys STK Engine。Streamlit UI 中"运行 STK 验证"按钮已自动禁用，'
+                         + '但仍可在算法层面运行参考实现回归（独立 <code>sgp4</code> 库 + HPOP-lite RK45 积分）。';
+        } else if (plat.reason === 'sdk_missing') {
+          hint.style.display = 'block';
+          hint.style.background = '#fef3c7';
+          hint.style.borderLeftColor = '#b45309';
+          hint.innerHTML = '⚠ 当前主机为 Windows 但未检测到 STK Python SDK。建议执行 '
+                         + '<code>pip install ansys-stk-core</code> 并重启 API。'
+                         + '在此之前，验证流程会自动回退到参考实现真值。';
+        }
+      }
+
+      // history list
+      const list = document.getElementById('stk-history-list');
+      const items = Array.isArray(doc.history) ? doc.history.slice(0, 20) : [];
+      if (list) {
+        if (items.length === 0) {
+          list.innerHTML = '<div style="color:#888">尚未运行任何 STK 交叉验证。</div>';
+        } else {
+          list.innerHTML = items.map((h) => {
+            const isPass = h && h.passed === true;
+            const tag = isPass
+              ? '<span style="color:#15803d;font-weight:600">通过</span>'
+              : '<span style="color:#b45309;font-weight:600">偏差超阈值</span>';
+            const labelCn = h.label === 'sgp4_vs_stk' ? 'SGP4 ↔ STK SGP4'
+                          : h.label === 'six_dof_vs_hpop' ? '6-DOF ↔ STK HPOP'
+                          : (h.label || '—');
+            const rms = ((h.pos_rms_km || 0) * 1000).toFixed(2);
+            const intrack = ((h.in_track_rms_km || 0) * 1000).toFixed(2);
+            const ts = h.generated_at_utc || '—';
+            return `<div style="border:1px solid #ddd;border-radius:6px;padding:8px 12px;margin:6px 0">
+              <div><b>${labelCn}</b> · ${tag} · ${ts}</div>
+              <div style="color:#555;font-size:0.92em">
+                位置 RMS = <code>${rms} m</code> · In-track RMS = <code>${intrack} m</code> ·
+                参考真值 = <code>${(h.reference || '—').replace(/</g,'&lt;')}</code>
+              </div>
+            </div>`;
+          }).join('');
+        }
+      }
+    })
+    .catch(() => {
+      const hint = document.getElementById('stk-platform-hint');
+      if (hint) {
+        hint.style.display = 'block';
+        hint.style.background = '#fef3c7';
+        hint.style.borderLeftColor = '#b45309';
+        hint.innerHTML = '⚠ 无法访问 <code>/api/v1/stk-validation</code>，请确认 FastAPI 服务正在运行。';
+      }
+    });
+})();
+</script>
+
+<script src="/docs/live-stats.js"></script>
+</body>
+</html>

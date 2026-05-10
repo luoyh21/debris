@@ -1978,6 +1978,14 @@ elif page == "sim":
                      } for p in nom[:100]]
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
+        # ── STK HPOP 交叉验证 ─────────────────────────────────────────
+        st.divider()
+        try:
+            from streamlit_app.stk_panel import render_six_dof_validation_panel
+            render_six_dof_validation_panel(result, key_prefix="stk_6dof_sim")
+        except Exception as _stk_exc:
+            st.caption(f"STK 交叉验证面板加载失败：{_stk_exc}")
+
 
 # ------------------------------------------------------------------
 # 页面：OEM 管理（已整合到可视化探索 → 轨道预报）

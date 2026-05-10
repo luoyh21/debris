@@ -177,6 +177,27 @@ def system_stats():
         return {"error": str(exc)}
 
 
+@app.get("/api/v1/stk-validation", tags=["算法验证"],
+         summary="STK 跨算法验证最近一次结果",
+         description=(
+             "返回 `data/validation/stk_validation.json` 聚合文件：包括当前主机的"
+             " Ansys STK 可用性快照、以及最近 N 次（默认 30）SGP4 / HPOP 交叉验证记录。\n\n"
+             "前端文档页 `/docs/modules/validation` 会消费此接口，把最新一次"
+             "「通过 / 偏差超阈值」结论与 RMS / RIC 误差自动渲染到表格中，"
+             "无需手工更新文档。"
+         ))
+def stk_validation_status():
+    try:
+        from stk_validation import detect_stk_availability
+        from stk_validation.report import load_full_doc
+        doc = load_full_doc()
+        # 始终覆盖 platform 字段，反映**当前**主机能力（而不是历史快照）
+        doc["platform"] = detect_stk_availability().to_dict()
+        return doc
+    except Exception as exc:
+        return {"error": str(exc), "history": [], "platform": {"available": False}}
+
+
 # ── Data source CRUD endpoints ───────────────────────────────────────────────
 
 _USER_OBJECT_FIELDS = (

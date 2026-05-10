@@ -2589,6 +2589,47 @@ def _render_orbit_forecast():
     # OEM export / import panel (below the table)
     _render_oem_panel(traces=traces)
 
+    # ── STK SGP4 交叉验证 ───────────────────────────────────────────────
+    try:
+        positive_ids = [k for k in traces if isinstance(k, int) and k > 0]
+        if positive_ids:
+            st.markdown("---")
+            st.markdown("### 🛰️ STK 交叉验证 · SGP4")
+            st.caption(
+                "选择上方任意一个 NORAD ID，把本系统内置的 SGP4 推演结果与 Ansys STK SGP4"
+                "（Windows + 已安装 STK Engine）或独立 `sgp4` 库参考实现做位置 / 速度 RMS"
+                "及 RIC 误差对照，结果会自动写入算法验证文档。"
+            )
+            sel_nid = st.selectbox(
+                "选择 NORAD ID",
+                options=positive_ids,
+                format_func=lambda n: f"{n} · {traces[n]['name'][:20]}",
+                key="ofp_stk_select",
+            )
+            from database.db import session_scope as _scope_v
+            from sqlalchemy import text as _text_v
+            l1 = l2 = ""
+            try:
+                with _scope_v() as _sess:
+                    _row = _sess.execute(_text_v("""
+                        SELECT g.tle_line1, g.tle_line2
+                        FROM gp_elements g
+                        WHERE g.norad_cat_id = :nid
+                        ORDER BY g.epoch DESC LIMIT 1
+                    """), {"nid": int(sel_nid)}).first()
+                if _row is not None:
+                    l1 = str(_row.tle_line1 or "")
+                    l2 = str(_row.tle_line2 or "")
+            except Exception as _exc:
+                st.caption(f"读取 TLE 失败：{_exc}")
+            from streamlit_app.stk_panel import render_sgp4_validation_panel
+            render_sgp4_validation_panel(
+                line1=l1, line2=l2, norad_id=int(sel_nid),
+                key_prefix=f"stk_sgp4_ofp_{sel_nid}",
+            )
+    except Exception as _stk_exc:
+        st.caption(f"STK 交叉验证面板加载失败：{_stk_exc}")
+
 
 def _render_oem_panel(traces: dict | None = None, col_ctrl=None):
     """Collapsible OEM export (from current traces) + import (upload → visualise)."""
