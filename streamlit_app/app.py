@@ -859,8 +859,8 @@ if page == "overview":
             st.dataframe(_aux_df, use_container_width=True, hide_index=True)
             st.caption(
                 "GCAT / UNOOSA 为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析；"
-                "Asterank 为独立的小行星/近地天体专题库（http://www.asterank.com），"
-                "TechPort 为 NASA 航天技术项目组合（https://techport.nasa.gov），"
+                "Asterank 为独立的小行星/近地天体专题库（[asterank.com](http://www.asterank.com)），"
+                "TechPort 为 NASA 航天技术项目组合（[techport.nasa.gov](https://techport.nasa.gov)），"
                 "三者均与地球在轨目标目录相互独立，分别可在目标目录页的"
                 "「小行星 / NEO (Asterank)」与「NASA 技术项目 (TechPort)」标签查看。"
             )
@@ -1049,7 +1049,7 @@ elif page == "catalog":
     # ── Tab 2：Asterank 小行星 / NEO 独立目录 ────────────────────────────
     with _cat_tab_aster:
         st.caption(
-            "Asterank 数据源（http://www.asterank.com） 维护的小行星 / 近地天体（NEO）"
+            "Asterank 数据源（[asterank.com](http://www.asterank.com)）维护的小行星 / 近地天体（NEO）"
             "开放目录。与地球在轨目标不同，这里是围绕太阳运行的天体，包含开普勒轨道"
             "根数、经济开采估值（price/profit）、Δv、光谱类型等字段。"
         )
@@ -1135,7 +1135,7 @@ elif page == "catalog":
     # ── Tab 3：NASA TechPort 航天技术项目组合 ───────────────────────────
     with _cat_tab_tp:
         st.caption(
-            "NASA TechPort 数据源（https://techport.nasa.gov） 维护的 NASA 资助 / 跟踪的"
+            "NASA TechPort 数据源（[techport.nasa.gov](https://techport.nasa.gov)）维护的 NASA 资助 / 跟踪的"
             "技术项目组合。包含项目标题、描述、TRL（Technology Readiness Level）、"
             "起止日期、责任组织、技术分类（NASA Taxonomy）、目标方向（Earth/Moon/Mars …）等字段，"
             "与地球在轨目标 / 小行星目录相互独立，存储于 `external_techport` 表。"
