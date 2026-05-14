@@ -20,5 +20,7 @@ data/external/techport_index.json
 tools/cloudflared.exe
 logs/tunnel_*.log
 logs/tunnels.json
+logs/tunnel_named.log
 scripts/tunnels_autostart.vbs
+.env.tunnel.local
 *.zip

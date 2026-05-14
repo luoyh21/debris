@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>API 使用指南 · 空间碎片监测系统</title>
-<link rel="stylesheet" href="/docs/style.css">
+<link rel="stylesheet" href="/docs/style.css?v=1.5">
 </head>
 <body>
 
 <div class="sidebar">
   <div class="sidebar-header">
     <h1>🛰️ 空间碎片监测系统</h1>
-    <div class="sub">使用文档 v1.0</div>
+    <div class="sub">使用文档 v1.5</div>
     <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
   </div>
   <div class="toc">
@@ -75,12 +75,6 @@
     <a href="/docs/api/tle" class="sub">TLE 查询</a>
     <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
     <a href="/docs/api/stats" class="sub">系统统计</a>
-    <a href="#datasources" class="sub">数据源管理</a>
-    <a href="#ds-list" class="sub" style="padding-left:60px">└ 列出数据源</a>
-    <a href="#ds-priority" class="sub" style="padding-left:60px">└ 修改优先级</a>
-    <a href="#ds-write" class="sub" style="padding-left:60px">└ 写入 / 修改</a>
-    <a href="#ds-bulk" class="sub" style="padding-left:60px">└ 批量写入</a>
-    <a href="#ds-delete" class="sub" style="padding-left:60px">└ 删除</a>
   </div>
 </div>
 
@@ -92,12 +86,12 @@
 <h2>基本信息</h2>
 <table>
   <tr><th>属性</th><th>说明</th></tr>
-  <tr><td><strong>基础 URL</strong></td><td><code id="base-url">http://&lt;your-host&gt;:8000</code></td></tr>
+  <tr><td><strong>基础 URL</strong></td><td><code id="base-url">http://&lt;your-host&gt;:8502</code></td></tr>
   <tr><td><strong>认证方式</strong></td><td>无需认证，开放访问</td></tr>
   <tr><td><strong>数据格式</strong></td><td>请求体：JSON（POST 请求）<br>响应体：JSON</td></tr>
   <tr><td><strong>编码</strong></td><td>UTF-8</td></tr>
-  <tr><td><strong>Swagger 文档</strong></td><td><a href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8000/api/docs','_blank');return false">打开 Swagger UI（交互式 API 文档）</a></td></tr>
-  <tr><td><strong>ReDoc 文档</strong></td><td><a href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8000/api/redoc','_blank');return false">打开 ReDoc（只读 API 文档）</a></td></tr>
+  <tr><td><strong>Swagger 文档</strong></td><td><a href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8502/api/docs','_blank');return false">打开 Swagger UI（交互式 API 文档）</a></td></tr>
+  <tr><td><strong>ReDoc 文档</strong></td><td><a href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8502/api/redoc','_blank');return false">打开 ReDoc（只读 API 文档）</a></td></tr>
 </table>
 
 <div class="info-box">
@@ -362,6 +356,6 @@ TechPort 等内置源会返回 HTTP 403。</p>
 <p>NASA TechPort 公开端点无需 token；若遇到限流或需要私有 / 草稿数据，可在 <a href="https://techport.nasa.gov/help/api" target="_blank">techport.nasa.gov/help/api</a> 复制当前会话 token 并填入 <code>.env</code> 的 <code>NASA_TECHPORT_TOKEN=</code>，每次刷新 TechPort 站点都会换 token，请按需更新。</p>
 
 </div>
-<script src="/docs/toc.js"></script>
+<script src="/docs/toc.js?v=1.5"></script>
 </body>
 </html>

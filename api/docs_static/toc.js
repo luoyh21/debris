@@ -71,26 +71,22 @@ document.addEventListener('DOMContentLoaded', function () {
   var localSubs = [];
 
   groups.forEach(function (g) {
+    /* default: every group starts CLOSED, regardless of any prior state */
+    setOpen(g, false);
+
     var parent = g.querySelector('a:first-child');
     var childrenDiv = g.querySelector('.toc-children');
     if (!parent || !childrenDiv) return;
 
     var parentHref = (parent.getAttribute('href') || '').split('#')[0].replace(/\/$/, '');
-    var isApiRoot = parentHref === '/docs/api';
-    var hasActiveSub = childrenDiv.querySelector('.active');
     var onParentPage = curPath === parentHref;
 
-    var onChildPage = false;
-    childrenDiv.querySelectorAll('a').forEach(function (cl) {
-      var ch = (cl.getAttribute('href') || '').split('#')[0].replace(/\/$/, '');
-      if (ch && curPath === ch) onChildPage = true;
-    });
-
-    if (isApiRoot || hasActiveSub || onParentPage || onChildPage) {
-      setOpen(g, true);
-    }
-
+    /* Open ONLY when the parent link points at the current page. We deliberately
+       do NOT auto-open groups whose subs target other pages (e.g. on
+       /docs/modules/validation we must NOT expand the "events" group just
+       because its subs share the same hash style). */
     if (onParentPage) {
+      setOpen(g, true);
       localGroup = g;
       localParent = parent;
       localSubs = Array.prototype.slice.call(childrenDiv.querySelectorAll('a'));
@@ -235,3 +231,58 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 });
+
+/* ──────────────────────────────────────────────────────────────────────
+   Smart API base-URL rewrite.
+   Works for:
+     - local dev   : http://localhost:8502/docs/...     -> origin
+     - cloudflare  : https://debris-api.he-ting.com/... -> origin
+     - streamlit   : http://localhost:8501/...          -> :8502 sibling
+   This rewrites every <code>/<pre> placeholder like
+   "http://<your-host>:8000", "http://<your-host>:8502", and
+   "http://localhost:850(0|2)" to the current origin so users can copy-paste
+   the curl examples no matter how they accessed the docs.
+   It also fixes the Swagger / ReDoc launcher buttons on api.html that were
+   hard-coded to ":8000".
+   ────────────────────────────────────────────────────────────────────── */
+(function () {
+  function apiBase() {
+    var loc = window.location;
+    if (loc.port === "8501") {
+      return loc.protocol + "//" + loc.hostname + ":8502";
+    }
+    return loc.origin;
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var base = apiBase();
+
+    var bu = document.getElementById('base-url');
+    if (bu) bu.textContent = base;
+
+    var patterns = [
+      /http:\/\/&lt;your-host&gt;:(?:8000|8502)/g,
+      /http:\/\/&lt;your-host&gt;/g,
+      /http:\/\/localhost:(?:8000|8502)/g,
+      /http:\/\/127\.0\.0\.1:(?:8000|8502)/g
+    ];
+    document.querySelectorAll('pre, code').forEach(function (el) {
+      var html = el.innerHTML;
+      var changed = false;
+      patterns.forEach(function (p) {
+        if (p.test(html)) { html = html.replace(p, base); changed = true; }
+      });
+      if (changed) el.innerHTML = html;
+    });
+
+    document.querySelectorAll(
+      'a[onclick*=":8502/api/"], a[onclick*=":8000/api/"]'
+    ).forEach(function (a) {
+      var m = (a.getAttribute('onclick') || '').match(/\/api\/(docs|redoc)/);
+      if (!m) return;
+      a.setAttribute('href', base + '/api/' + m[1]);
+      a.removeAttribute('onclick');
+      a.setAttribute('target', '_blank');
+    });
+  });
+})();

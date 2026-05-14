@@ -87,6 +87,9 @@ a:hover { color: #0550ae; }
   background: rgba(96,165,250,.1); font-weight: 500;
 }
 .toc a.sub { padding-left: 42px; font-size: 12px; }
+/* Defensive: any .sub that hasn't been wrapped into a .toc-children container
+   yet (e.g. before toc.js finishes, or if it errors out) must stay hidden. */
+.toc > a.sub { display: none; }
 
 /* ── collapsible groups ── */
 .toc-group > a:first-child { position: relative; padding-left: 34px; }

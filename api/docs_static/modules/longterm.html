@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>长期风险评估 · 空间碎片监测系统</title>
-<link rel="stylesheet" href="/docs/style.css">
+<link rel="stylesheet" href="/docs/style.css?v=1.5">
 </head>
 <body>
 
 <div class="sidebar">
   <div class="sidebar-header">
     <h1>🛰️ 空间碎片监测系统</h1>
-    <div class="sub">使用文档 v1.0</div>
+    <div class="sub">使用文档 v1.5</div>
     <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
   </div>
   <div class="toc">
@@ -40,6 +40,15 @@
     <a href="/docs/modules/collision">碰撞风险评估</a>
     <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
     <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
+    <a href="/docs/modules/avoidance">规避策略生成器</a>
+    <a href="/docs/modules/avoidance#impulsive" class="sub">脉冲规避（B 平面）</a>
+    <a href="/docs/modules/avoidance#low-thrust" class="sub">持续小推力 SCP</a>
+    <a href="/docs/modules/avoidance#ascent" class="sub">上升段 MPC 走廊</a>
+    <a href="/docs/modules/events">太空事件管理</a>
+    <a href="/docs/modules/events#sources" class="sub">数据来源与抓取</a>
+    <a href="/docs/modules/events#sbm" class="sub">NASA SBM 解体</a>
+    <a href="/docs/modules/events#ccsds" class="sub">CCSDS 标准 I/O</a>
+    <a href="/docs/modules/events#api" class="sub">REST API 接口</a>
     <a href="/docs/modules/longterm" class="active">长期风险评估</a>
     <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
     <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
@@ -158,6 +167,6 @@
 </div>
 
 </div>
-<script src="/docs/toc.js"></script>
+<script src="/docs/toc.js?v=1.5"></script>
 </body>
 </html>

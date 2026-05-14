@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>太空事件管理 · 空间碎片监测系统</title>
-<link rel="stylesheet" href="/docs/style.css">
+<link rel="stylesheet" href="/docs/style.css?v=1.5">
 </head>
 <body>
 
 <div class="sidebar">
   <div class="sidebar-header">
     <h1>🛰️ 空间碎片监测系统</h1>
-    <div class="sub">使用文档 v1.0</div>
+    <div class="sub">使用文档 v1.5</div>
     <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
   </div>
   <div class="toc">
@@ -20,22 +20,41 @@
 
     <div class="toc-section">功能模块详解</div>
     <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/overview#metrics" class="sub">实时指标卡片</a>
+    <a href="/docs/modules/overview#ingestion" class="sub">数据摄入状态</a>
+    <a href="/docs/modules/overview#trend" class="sub">发射历史趋势</a>
     <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/visualization#global" class="sub">全球碎片态势</a>
+    <a href="/docs/modules/visualization#drilldown" class="sub">高度分层下钻</a>
+    <a href="/docs/modules/visualization#orbit" class="sub">目标轨道预报</a>
+    <a href="/docs/modules/visualization#search" class="sub">区域碎片搜索</a>
     <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/catalog#filter" class="sub">多维筛选</a>
+    <a href="/docs/modules/catalog#detail" class="sub">目标详情</a>
     <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/simulation#config" class="sub">参数配置</a>
+    <a href="/docs/modules/simulation#result" class="sub">仿真结果</a>
     <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/lcola#scan" class="sub">窗口扫描</a>
+    <a href="/docs/modules/lcola#blackout" class="sub">禁发时段</a>
     <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/collision#phases" class="sub">分阶段评估</a>
+    <a href="/docs/modules/collision#risk" class="sub">风险等级</a>
     <a href="/docs/modules/avoidance">规避策略生成器</a>
     <a href="/docs/modules/avoidance#impulsive" class="sub">脉冲规避（B 平面）</a>
     <a href="/docs/modules/avoidance#low-thrust" class="sub">持续小推力 SCP</a>
     <a href="/docs/modules/avoidance#ascent" class="sub">上升段 MPC 走廊</a>
     <a href="/docs/modules/events" class="active">太空事件管理</a>
-    <a href="#sources"  class="sub">数据来源与抓取</a>
-    <a href="#sbm"      class="sub">NASA SBM 解体模型</a>
-    <a href="#ccsds"    class="sub">CCSDS NDM 标准</a>
-    <a href="#api"      class="sub">REST 接口</a>
+    <a href="/docs/modules/events#sources" class="sub">数据来源与抓取</a>
+    <a href="/docs/modules/events#sbm" class="sub">NASA SBM 解体</a>
+    <a href="/docs/modules/events#ccsds" class="sub">CCSDS 标准 I/O</a>
+    <a href="/docs/modules/events#api" class="sub">REST API 接口</a>
     <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/longterm#params" class="sub">参数输入</a>
+    <a href="/docs/modules/longterm#result" class="sub">评估结果</a>
     <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/ai#tools" class="sub">可用工具</a>
+    <a href="/docs/modules/ai#examples" class="sub">示例问题</a>
     <a href="/docs/modules/validation">算法正确性验证</a>
     <a href="/docs/modules/validation#sbm-bench" class="sub">SBM 历史对照</a>
     <a href="/docs/modules/validation#pc-bench" class="sub">Foster/Chan Pc</a>
@@ -50,6 +69,12 @@
 
     <div class="toc-section">API 接口</div>
     <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/launch-risk" class="sub">发射碰撞风险</a>
+    <a href="/docs/api/reentry" class="sub">再入预报</a>
+    <a href="/docs/api/tle" class="sub">TLE 查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
   </div>
 </div>
 
@@ -234,6 +259,6 @@ curl -X POST http://localhost:8502/api/v1/events/import \
 </ul>
 
 </div>
-<script src="/docs/toc.js"></script>
+<script src="/docs/toc.js?v=1.5"></script>
 </body>
 </html>

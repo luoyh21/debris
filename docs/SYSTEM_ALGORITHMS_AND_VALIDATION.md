@@ -553,7 +553,7 @@ stk_validation/
 
 ### 3.5 STK 集成调试史 — 关键 6 步
 
-记录 v1.0 开发过程中的踩坑顺序，便于二次开发：
+记录 v1.5 开发过程中的踩坑顺序，便于二次开发：
 
 1. **PySTK 优先**：尝试 `from ansys.stk.core.stkengine import STKEngine` → STK 12.1+ 才支持。
 2. **Win32COM 兜底**：STK 11 用户走 `win32com.client.Dispatch("STK11.Application")`；

@@ -6,6 +6,9 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
+# Optional override file written by scripts/setup_named_tunnel.ps1
+# (CF_TUNNEL_TOKEN / CF_TUNNEL_HOSTNAME_UI / CF_TUNNEL_HOSTNAME_API)
+load_dotenv(Path(__file__).parent.parent / ".env.tunnel.local", override=False)
 
 
 def _normalize_openai_base_url(url: str) -> str:

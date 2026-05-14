@@ -21,7 +21,7 @@ app = FastAPI(
         "Space Debris Monitoring & Launch Collision Risk Assessment system API.\n\n"
         "提供区域碎片查询、发射碰撞风险预测、再入预报、TLE 检索和 RCS 筛选等接口。"
     ),
-    version="1.0.0",
+    version="1.5.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",

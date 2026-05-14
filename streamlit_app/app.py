@@ -6,6 +6,11 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Side-effect import: triggers load_dotenv(.env) + load_dotenv(.env.tunnel.local)
+# so that CF_TUNNEL_HOSTNAME_API / CF_TUNNEL_HOSTNAME_UI become visible to
+# the docs-link resolver below.
+import config.settings  # noqa: F401
+
 import streamlit as st
 import pandas as pd
 import threading
@@ -444,8 +449,24 @@ try:
     _host_header = st.context.headers.get("Host", "")
     _api_host = _host_header.split(":")[0] if _host_header else "localhost"
 except Exception:
+    _host_header = ""
     _api_host = "localhost"
-_docs_url = f"http://{_api_host}:8502/docs"
+
+def _resolve_docs_url(host_header: str, api_host: str) -> str:
+    # 1) explicit override always wins
+    explicit = os.getenv("PUBLIC_DOCS_URL", "").strip()
+    if explicit:
+        return explicit
+    # 2) named cloudflare tunnel (set by scripts/setup_named_tunnel.ps1)
+    api_fqdn = os.getenv("CF_TUNNEL_HOSTNAME_API", "").strip()
+    ui_fqdn  = os.getenv("CF_TUNNEL_HOSTNAME_UI",  "").strip()
+    if api_fqdn and ui_fqdn and api_host.lower() == ui_fqdn.lower():
+        # cloudflare always serves the tunnel over TLS, no port suffix
+        return f"https://{api_fqdn}/docs"
+    # 3) local / LAN dev -> assume FastAPI on the same host, port 8502
+    return f"http://{api_host}:8502/docs"
+
+_docs_url = _resolve_docs_url(_host_header, _api_host)
 _docs_ic, _docs_bt = st.sidebar.columns([0.14, 0.86])
 with _docs_ic:
     _docs_svg = icon_inline("docs", 20).replace('stroke="#1e3a5f"', 'stroke="#2C84BC"')
