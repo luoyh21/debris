@@ -10,7 +10,7 @@ import streamlit as st
 import pandas as pd
 import threading
 import time as _time_mod
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from sqlalchemy import text
 
 from streamlit_app.nav_icons import (
@@ -908,6 +908,29 @@ elif page == "catalog":
                                            ["全部", "含 UCS 数据", "含 ESA 数据",
                                             "有用途信息", "有用户类型信息"])
 
+            col9, col10, col11 = st.columns([3, 3, 2])
+            launch_from = col9.date_input(
+                "发射日期 ≥",
+                value=None,
+                min_value=date(1957, 1, 1),
+                max_value=date.today(),
+                key="_cat_launch_from",
+                help="留空则不限制起始日期",
+            )
+            launch_to = col10.date_input(
+                "发射日期 ≤",
+                value=None,
+                min_value=date(1957, 1, 1),
+                max_value=date.today(),
+                key="_cat_launch_to",
+                help="留空则不限制截止日期",
+            )
+            include_undated = col11.checkbox(
+                "包含未知发射日期", value=True,
+                key="_cat_include_undated",
+                help="勾选后保留 launch_date 为空的目标",
+            )
+
         type_map = {
             "全部": None,
             "DEBRIS（碎片）": "DEBRIS",
@@ -952,6 +975,22 @@ elif page == "catalog":
             where_clauses.append("inferred_purpose IS NOT NULL")
         elif enrich_filter == "有用户类型信息":
             where_clauses.append("inferred_users IS NOT NULL")
+
+        # Launch-date range filter (optional, with NULL handling)
+        if launch_from or launch_to:
+            _date_parts: list[str] = []
+            if launch_from:
+                _date_parts.append("launch_date >= :ld_from")
+                params["ld_from"] = launch_from
+            if launch_to:
+                _date_parts.append("launch_date <= :ld_to")
+                params["ld_to"] = launch_to
+            _date_clause = "(" + " AND ".join(_date_parts) + ")"
+            if include_undated:
+                _date_clause = "(launch_date IS NULL OR " + _date_clause + ")"
+            where_clauses.append(_date_clause)
+        elif not include_undated:
+            where_clauses.append("launch_date IS NOT NULL")
 
         where_sql = " AND ".join(where_clauses)
         df = run_query(f"""
@@ -1182,15 +1221,26 @@ elif page == "catalog":
                                               key="_tp_trl_min",
                                               help="0 表示不限制")
 
-                tc7, tc8 = st.columns(2)
-                tp_year_min = tc7.number_input("起始年份 ≥", min_value=0,
-                                               max_value=2100, value=0, step=1,
-                                               key="_tp_year_min",
-                                               help="0 表示不限制")
-                tp_year_max = tc8.number_input("结束年份 ≤", min_value=0,
-                                               max_value=2100, value=0, step=1,
-                                               key="_tp_year_max",
-                                               help="0 表示不限制")
+                tc7, tc8, tc9 = st.columns([3, 3, 2])
+                tp_start_from = tc7.date_input(
+                    "项目开始日期 ≥", value=None,
+                    min_value=date(1990, 1, 1),
+                    max_value=date(2100, 12, 31),
+                    key="_tp_start_from",
+                    help="留空则不限制；按 start_date 字段过滤",
+                )
+                tp_end_to = tc8.date_input(
+                    "项目结束日期 ≤", value=None,
+                    min_value=date(1990, 1, 1),
+                    max_value=date(2100, 12, 31),
+                    key="_tp_end_to",
+                    help="留空则不限制；按 end_date 字段过滤",
+                )
+                tp_include_undated = tc9.checkbox(
+                    "包含无日期项目", value=True,
+                    key="_tp_include_undated",
+                    help="勾选保留 start_date / end_date 为空的项目",
+                )
 
             t_where: list[str] = []
             t_params: dict = {}
@@ -1212,12 +1262,21 @@ elif page == "catalog":
             if tp_trl_min and tp_trl_min > 0:
                 t_where.append("trl_current >= :ttrl")
                 t_params["ttrl"] = int(tp_trl_min)
-            if tp_year_min and tp_year_min > 0:
-                t_where.append("start_year >= :tymin")
-                t_params["tymin"] = int(tp_year_min)
-            if tp_year_max and tp_year_max > 0:
-                t_where.append("end_year <= :tymax")
-                t_params["tymax"] = int(tp_year_max)
+            if tp_start_from or tp_end_to:
+                _tp_parts: list[str] = []
+                if tp_start_from:
+                    _tp_parts.append("start_date >= :ts_from")
+                    t_params["ts_from"] = tp_start_from
+                if tp_end_to:
+                    _tp_parts.append("end_date <= :te_to")
+                    t_params["te_to"] = tp_end_to
+                _tp_clause = "(" + " AND ".join(_tp_parts) + ")"
+                if tp_include_undated:
+                    _tp_clause = ("((start_date IS NULL AND end_date IS NULL) OR "
+                                  + _tp_clause + ")")
+                t_where.append(_tp_clause)
+            elif not tp_include_undated:
+                t_where.append("start_date IS NOT NULL AND end_date IS NOT NULL")
             t_where_sql = " AND ".join(t_where) if t_where else "TRUE"
 
             t_df = run_query(f"""

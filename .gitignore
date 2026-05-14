@@ -15,3 +15,4 @@ build/
 pgdata/
 data/external/techport_index.json
 *.jsonl
+*.zip
