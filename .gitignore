@@ -15,4 +15,10 @@ build/
 pgdata/
 data/external/techport_index.json
 *.jsonl
+
+# Cloudflare tunnel
+tools/cloudflared.exe
+logs/tunnel_*.log
+logs/tunnels.json
+scripts/tunnels_autostart.vbs
 *.zip
