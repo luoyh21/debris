@@ -611,18 +611,20 @@ stk_validation/
   \(\hat{R} = \mathbf{r}/r,\quad \hat{C}=\mathbf{r}\times\mathbf{v}/|\cdot|,\quad \hat{I}=\hat{C}\times\hat{R}\)
 * 把误差向量 \(\Delta\mathbf{r} = \mathbf{r}_{\text{cand}}-\mathbf{r}_{\text{ref}}\) 投到三向：
   \(\Delta r_R, \Delta r_I, \Delta r_C\)
-* 输出 RMS / max + **诊断笔记**：
+* 输出 RMS / max。R/I/C 三向 RMS 已固化为 STK 验证报告（HTML / Streamlit / JSON）的标准字段，
+  无须额外开关。下表给出三向误差主导时对应的物理成因，以及 v1.5 在 6-DOF 数值积分管线中
+  **已经落地**的对应改进：
 
-| 主导方向 | 典型成因 | 建议修正 |
+| 主导方向 | 典型成因 | v1.5 已落地的对应改进 |
 |---|---|---|
-| In-track（沿轨） | 大气阻力 / 弹道系数偏差；TLE BSTAR 不准 | 升级 NRLMSISE / Jacchia；BC 实时估计；缩短 TLE 更新周期 |
-| Cross-track（轨道法向） | 升交点漂移；引力位阶数不足；岁差章动未引入 | 升级 EGM 阶数（4→6→8→21）；引入 IAU 2000A |
-| Radial（径向） | 初值 1σ 噪声；SRP 缺失；远日点非线性 | OD 协方差估计；启用 SRP；远日点加密步长 |
+| In-track（沿轨） | 大气阻力 / 弹道系数偏差；TLE BSTAR 不准 | `stk_validation/atmosphere.py` 接入 **NRLMSISE-00**；BC = C_D·A/m 由 `reference_propagator.py` 暴露为可调字段 |
+| Cross-track（轨道法向） | 升交点漂移；引力位阶数不足；岁差章动未引入 | `stk_validation/gravity_egm.py` 升至 **EGM96 8×8**（Holmes-Featherstone 递推 + 有限差分加速度），保留 4×4 / 6×6 档位作消融；坐标转换内嵌 IAU 2000A 章动近似 |
+| Radial（径向） | 初值 1σ 噪声；SRP 缺失；远日点非线性 | `reference_propagator.py` 启用 **SRP 球面模型**（含圆锥地影）和 **日 / 月三体引力**；DOP853 自适应步长在远日点自动加密 |
 
-* 累积规律：
-  * In-track 线性累积 → 阻力/Δv；
-  * In-track 二次/三次累积 → BC 系统偏差；
-  * 三向均小但 In-track 大 → 单位 / 时基（TT vs UTC）问题。
+* 累积规律（用于回归判定）：
+  * In-track 线性累积 → 阻力/Δv 偏差；
+  * In-track 二次 / 三次累积 → BC 系统偏差；
+  * 三向均小但 In-track 大 → 单位 / 时基（TT vs UTC）不一致。
 
 ### 3.5 STK 集成调试史 — 关键 6 步
 

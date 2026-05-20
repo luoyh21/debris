@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ansys STK 跨算法验证 · 空间碎片监测系统</title>
-<link rel="stylesheet" href="/docs/style.css?v=1.5.1">
+<link rel="stylesheet" href="/docs/style.css?v=1.5.2">
 </head>
 <body>
 
@@ -237,7 +237,8 @@ mass 1000 kg, drag area 10 m², Cd 2.2; 平均轨道半径 r̄ ≈ 6 800 km。<b
 
 <h3 style="margin-top:30px">3.1 算法升级：三变体 ↔ STK HPOP</h3>
 
-<p>本系统按本文档第四节「RIC 误差诊断」的<em>建议修正</em>，提供三档力学模型：</p>
+<p>对应第四节「RIC 误差诊断」中三向误差的物理成因，6-DOF 数值积分管线提供如下五档力学模型，
+其中 EGM 6×6 为当前默认推荐档：</p>
 
 <ul>
   <li><b>baseline</b> —— 与 <code>trajectory/six_dof.py</code> 一致：J2 + USSA-76 大气；</li>
@@ -373,33 +374,41 @@ mass 1000 kg, drag area 10 m², Cd 2.2; 平均轨道半径 r̄ ≈ 6 800 km。<b
 
 <h2 id="ric-analysis">四、RIC 误差诊断 — 错在哪里？</h2>
 
-<p>仅看总位置 RMS 不足以指导算法迭代。RIC 三向分解能告诉你<em>误差类型</em>：</p>
+<p><code>stk_validation/comparison.py::compute_rms_errors</code> 在每个采样点逐点构造
+RIC 基矢 <span class="mono">(R̂ = r̂, Ĉ = r×v / |r×v|, Î = Ĉ×R̂)</span>，
+将位置误差向量投影到三向，输出 R / I / C 三个独立 RMS。这一分解已是 STK 验证报告
+（HTML / Streamlit / JSON 三处共用）的固定字段，可在主表中直接读取，无须额外开关。
+下表列出三向误差主导时对应的物理成因，以及 <strong>v1.5 在 6-DOF 数值积分管线中已经落地</strong>
+的对应改进；SGP4 解析支路因协议固定，仅作为对照基线。</p>
 
 <table>
   <tr>
     <th>主导方向</th>
     <th>典型成因</th>
-    <th>建议修正</th>
+    <th>v1.5 已落地的对应改进</th>
   </tr>
   <tr>
     <td><b>In-track</b>（沿轨）</td>
     <td>大气阻力 / 弹道系数估计偏差；TLE 中 BSTAR 与真实 (C<sub>D</sub>·A/m) 不匹配；
         简化大气模型（USSA-76 vs NRLMSISE-00）。</td>
-    <td>升级到 NRLMSISE-00 / Jacchia-Bowman；引入弹道系数实时估计；
-        缩短 TLE 更新周期（&lt; 24h）。</td>
+    <td><code>stk_validation/atmosphere.py</code> 已接入 <b>NRLMSISE-00</b>
+        （USSA-76 / 指数大气仅作离线 fallback）；BC = C<sub>D</sub>·A/m 由
+        <code>reference_propagator.py</code> 暴露为外部可调字段，可由 OD 流程回填。</td>
   </tr>
   <tr>
     <td><b>Cross-track</b>（轨道法向）</td>
     <td>升交点漂移；J2 / J3 / J4 引力位的展开阶数不足；地球岁差章动未引入。</td>
-    <td>把引力场从 J2 提升到 EGM96 / EGM2008，至少展开到 21×21；
-        引入 IAU 2000A 岁差章动模型。</td>
+    <td><code>stk_validation/gravity_egm.py</code> 默认从 J2 升至 <b>EGM96 8×8</b>
+        （Holmes-Featherstone 递推 + 有限差分加速度），并保留 4×4 / 6×6 档位用于消融对比；
+        坐标系转换内嵌 IAU 2000A 章动近似。</td>
   </tr>
   <tr>
     <td><b>Radial</b>（径向）</td>
     <td>初始状态向量本身有 1 σ 噪声；SGP4 在远日点附近的非线性误差；
         SRP（太阳辐射压）建模缺失。</td>
-    <td>引入定轨 / OD 流程对初值做协方差估计；启用 SRP 球面模型；
-        在远日点段加密积分步长。</td>
+    <td><code>reference_propagator.py</code> 已启用 <b>SRP 球面模型</b>（含圆锥地影）和
+        <b>日 / 月三体引力</b>；<code>scipy.solve_ivp(DOP853)</code> 自适应步长会在
+        远日点自动加密积分点。</td>
   </tr>
 </table>
 
@@ -648,7 +657,7 @@ cat  data/validation/stk_validation.json   # Linux/macOS
 })();
 </script>
 
-<script src="/docs/live-stats.js?v=1.5.1"></script>
-<script src="/docs/toc.js?v=1.5.1"></script>
+<script src="/docs/live-stats.js?v=1.5.2"></script>
+<script src="/docs/toc.js?v=1.5.2"></script>
 </body>
 </html>

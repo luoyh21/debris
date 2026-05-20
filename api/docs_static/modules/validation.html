@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>算法验证 · 空间碎片监测系统</title>
-<link rel="stylesheet" href="/docs/style.css?v=1.5.1">
+<link rel="stylesheet" href="/docs/style.css?v=1.5.2">
 </head>
 <body>
 
@@ -183,11 +183,12 @@
   📐 <strong>对系统使用者的影响</strong>：当系统中模拟一次解体事件，得到 1,000 个 ≥10 cm 碎片时，应理解这是<u>事件刚发生时</u>的可建模数量；多年后实际编目通常会扩大 1.5×–4×。在<b>避撞筛查与短期风险评估</b>中（事件后数小时～数天）SBM 预测最可靠；用于<b>长期碎片环境演化</b>时则应叠加质量修正项（系统中的「长期风险评估」面板已经按文献加入 Castronuovo 修正系数）。
 </div>
 
-<h3 id="sbm-mass" style="margin-top:24px">1.1 v1.5 新增：质量缩放扫描（验证 N(>Lc) ∝ M<sup>0.75</sup>）</h3>
+<h3 id="sbm-mass" style="margin-top:24px">1.1 质量缩放扫描（验证 N(>Lc) ∝ M<sup>0.75</sup>）</h3>
 
-<p>用户提出"<u>解体事件加质量缩放</u>"诉求，为此 v1.5 在
-<code>scripts/_event_validation_demo.py §1(b)</code> 加入了 6 档 mass scan
-（catastrophic collision, target=20 kg, Lc∈[5 cm, 1 m]）：</p>
+<p>v1.5 在 <code>scripts/_event_validation_demo.py §1(b)</code> 增加了 6 档 mass scan，
+用以严格检验 NASA SBM 碰撞分支的质量依赖（公式 <code>N(>Lc) = 0.1 · M<sup>0.75</sup> · Lc<sup>−1.71</sup></code>）
+是否在所有量级上都被本系统逐位实现。测试条件：catastrophic collision, target=20 kg,
+Lc ∈ [5 cm, 1 m]：</p>
 
 <table>
   <tr>
@@ -208,7 +209,7 @@
 <p style="font-size:0.92em;color:#666">
 sim/M<sup>0.75</sup> 比率 = 16.677–16.683 在 6 个数量级上波动只有 ±0.003
 （<b>相对波动 0.013 %</b>），完整复现了 EVOLVE 4.0 / Johnson 2001 的 M<sup>0.75</sup>
-缩放律。<u>这是对"用户希望的质量缩放"诉求的直接闭环验证</u>。
+缩放律。<u>该项扫描以闭环方式证明本系统的解体模型在质量维度上的标度律严格自洽</u>。
 </p>
 
 
@@ -289,9 +290,10 @@ m ≠ 0       :  Pc = F_{χ²₂(λ=m²/σ²)} (HBR²/σ²)        (非中心 χ
 
 <h2 id="collision-replay">三、历史事件碰撞预演（v1.5 新增）</h2>
 
-<p>用户提出"<u>不是预测数量而是在前一段时间进行预演，看按照轨迹发展的话两个碎片是否会碰撞</u>"，
-为此 v1.5 在 <code>scripts/_event_validation_demo.py §3</code> 增加了端到端的"算法独立从 TLE
-解算 close approach"流程，**完全验证用户想要的"事前预演"模式**：</p>
+<p>本节聚焦运行模式上的一个关键升级：v1.5 不再仅给出"事后历史事件的碎片数复盘"，
+而是把整个 close-approach 流程<b>提前到 TCA 之前</b>运行 ——
+即仅凭两个对象当前的 TLE，向未来推演它们的轨迹，独立判断是否会在某个时刻足够接近以触发避撞。
+对应实现在 <code>scripts/_event_validation_demo.py §3</code>，端到端流程为：</p>
 
 <pre><code>两条 TLE → 本系统 SGP4 propagate
         → 两阶段扫描（10 s 粗扫 ±2 h + 1 s 细化 10 min 窗口）
@@ -334,10 +336,10 @@ m ≠ 0       :  Pc = F_{χ²₂(λ=m²/σ²)} (HBR²/σ²)        (非中心 χ
 </ul>
 
 <div class="info-box">
-  ✅ <strong>验证结论</strong>：用户要求的"<u>从 TLE 推演两个物体未来是否会碰撞</u>"
-  完整闭环：（i）SGP4 propagate ✓ ／（ii）TCA & min miss 扫描 ✓ ／
-  （iii）Foster Pc 输出 ✓。算法链路在 §3.1 用严格可控的合成 TLE 闭环验证，
-  在 §3.2 给出真实历史事件的参数对照。
+  ✅ <strong>验证结论</strong>：本系统已具备"<u>仅凭 TLE 即可预演两个空间物体未来是否会发生 close approach</u>"
+  的完整闭环能力：（i）SGP4 propagate ✓ ／（ii）TCA & min miss 扫描 ✓ ／
+  （iii）Foster Pc 输出 ✓。整条算法链路在 §3.1 用严格可控的合成 TLE 完成连通性验证，
+  在 §3.2 给出 Iridium-33 / Cosmos-2251 (2009) 真实历史事件的参数对照。
 </div>
 
 
@@ -381,6 +383,6 @@ Iridium-Cosmos-est        4.329e-04    4.329e-04            —       —</code>
 </ol>
 
 </div>
-<script src="/docs/toc.js?v=1.5.1"></script>
+<script src="/docs/toc.js?v=1.5.2"></script>
 </body>
 </html>
