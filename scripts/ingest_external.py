@@ -484,16 +484,26 @@ def ingest_esa_discos(limit: int | None = None):
         all_objects = {}  # esa_id → dict
         page, max_pages = 1, 2000
         while page <= max_pages:
-            try:
-                r = requests.get(
-                    f"{base}/objects?page[size]=100&page[number]={page}",
-                    headers=headers, timeout=60,
-                )
-            except requests.RequestException as e:
-                log.error("  ESA objects API error on page %d: %s", page, e)
-                break
-            if r.status_code != 200:
-                log.error("  ESA objects API error on page %d: %d %s", page, r.status_code, r.text[:200])
+            r = None
+            for attempt in range(6):
+                try:
+                    r = requests.get(
+                        f"{base}/objects?page[size]=100&page[number]={page}",
+                        headers=headers, timeout=120,
+                    )
+                    if r.status_code == 429:
+                        log.warning("  ESA 429 throttled on page %d, sleeping 30s", page)
+                        time.sleep(30); continue
+                    if r.status_code == 200:
+                        break
+                    log.warning("  ESA objects HTTP %d page %d (try %d/6)",
+                                r.status_code, page, attempt + 1)
+                except requests.RequestException as e:
+                    log.warning("  ESA objects timeout page %d (try %d/6): %s",
+                                page, attempt + 1, e)
+                time.sleep(2 ** attempt)
+            if r is None or r.status_code != 200:
+                log.error("  ESA objects giving up on page %d after retries", page)
                 break
             data = r.json()
             items = data.get("data", [])
@@ -534,17 +544,27 @@ def ingest_esa_discos(limit: int | None = None):
         orbit_for_obj = {}  # esa_id → best orbit dict
         page, max_pages = 1, 2000
         while page <= max_pages:
-            try:
-                r = requests.get(
-                    f"{base}/initial-orbits?page[size]=100&page[number]={page}"
-                    "&include=object",
-                    headers=headers, timeout=60,
-                )
-            except requests.RequestException as e:
-                log.error("  ESA orbits API error on page %d: %s", page, e)
-                break
-            if r.status_code != 200:
-                log.error("  ESA orbits API error on page %d: %d %s", page, r.status_code, r.text[:200])
+            r = None
+            for attempt in range(6):
+                try:
+                    r = requests.get(
+                        f"{base}/initial-orbits?page[size]=100&page[number]={page}"
+                        "&include=object",
+                        headers=headers, timeout=120,
+                    )
+                    if r.status_code == 429:
+                        log.warning("  ESA 429 throttled on orbits page %d, sleeping 30s", page)
+                        time.sleep(30); continue
+                    if r.status_code == 200:
+                        break
+                    log.warning("  ESA orbits HTTP %d page %d (try %d/6)",
+                                r.status_code, page, attempt + 1)
+                except requests.RequestException as e:
+                    log.warning("  ESA orbits timeout page %d (try %d/6): %s",
+                                page, attempt + 1, e)
+                time.sleep(2 ** attempt)
+            if r is None or r.status_code != 200:
+                log.error("  ESA orbits giving up on page %d after retries", page)
                 break
             data = r.json()
             items = data.get("data", [])

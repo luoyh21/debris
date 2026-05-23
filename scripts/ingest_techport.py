@@ -404,12 +404,34 @@ def ingest_techport(limit: int | None = None,
                      int(trl.min()), int(trl.max()), float(trl.median()))
 
     # Step 4: write to DB (drop + replace)
+    # Low-memory: create empty table with `to_sql(method=None, chunksize=0)`-like
+    # head() to materialise schema, then COPY FROM stdin (streams CSV, ~constant memory).
     engine = get_engine()
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS external_techport CASCADE"))
 
-    df.to_sql("external_techport", engine,
-              if_exists="replace", index=False, method="multi", chunksize=400)
+    # 1) create schema by writing 0 rows
+    df.head(0).to_sql("external_techport", engine, if_exists="replace", index=False)
+
+    # 2) stream the full DataFrame into the new table via COPY (memory-efficient)
+    import io
+    import csv as _csv
+    raw_conn = engine.raw_connection()
+    try:
+        with raw_conn.cursor() as cur:
+            buf = io.StringIO()
+            df.to_csv(buf, index=False, header=False, na_rep="\\N",
+                      quoting=_csv.QUOTE_MINIMAL)
+            buf.seek(0)
+            cols = ",".join(f'"{c}"' for c in df.columns)
+            cur.copy_expert(
+                f"COPY external_techport ({cols}) FROM STDIN WITH "
+                f"(FORMAT CSV, NULL '\\N')",
+                buf,
+            )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
 
     # Add helpful indexes
     with engine.begin() as conn:
