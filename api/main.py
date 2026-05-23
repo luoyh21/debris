@@ -177,6 +177,28 @@ def system_stats():
         return {"error": str(exc)}
 
 
+@app.get("/api/v1/usage", tags=["系统统计"],
+         summary="访问量与使用次数统计",
+         description=(
+             "返回前端 Streamlit 的累计访问统计：\n\n"
+             "- `total_sessions`  独立会话数（每个浏览器会话首次打开 +1）\n"
+             "- `total_actions`   累计 rerun 次数（每次点击导航 / 表单提交 +1）\n"
+             "- `last_visit_utc`  最近一次访问的 UTC 时间戳\n\n"
+             "计数表 `app_visit_stats` 在第一次访问时自动建立，"
+             "无需 Alembic 迁移。任何 DB 故障都会被吞掉并返回空对象。"
+         ))
+def usage_stats():
+    try:
+        from database.visit_stats import get_visit_stats
+        return get_visit_stats() or {
+            "total_sessions": 0,
+            "total_actions": 0,
+            "last_visit_utc": None,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.get("/api/v1/stk-validation", tags=["算法验证"],
          summary="STK 跨算法验证最近一次结果",
          description=(

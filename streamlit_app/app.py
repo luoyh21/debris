@@ -41,6 +41,7 @@ NAV_PAGES = [
     ("events",    "太空事件管理",   "events"),
     ("longterm",  "长期风险评估",   "longterm"),
     ("ai",        "AI 助手",        "ai"),
+    ("tools",     "功能面板",       "tools"),
 ]
 
 
@@ -494,6 +495,22 @@ st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
 st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank · NASA TechPort")
 
+# ── 访问统计（持久化到 PostgreSQL，每个会话只把 total_sessions +1）──────────────
+try:
+    from database.visit_stats import record_visit, get_visit_stats
+    _is_new_sess = not st.session_state.get("_visit_logged", False)
+    record_visit(new_session=_is_new_sess)
+    if _is_new_sess:
+        st.session_state["_visit_logged"] = True
+    _vs = get_visit_stats()
+    if _vs:
+        st.sidebar.caption(
+            f"总访问 {_vs.get('total_sessions', 0):,} 次 · "
+            f"累计使用 {_vs.get('total_actions', 0):,} 次"
+        )
+except Exception:
+    pass
+
 # Track current page in session_state so sidebar fragments can read it.
 # Also clear LCOLA done notification when user visits the LCOLA page.
 st.session_state["_current_page"] = page
@@ -619,6 +636,15 @@ if page == "overview":
             并独立接入 <strong>Asterank</strong> 小行星 / 近地天体（NEO）专题库
             与 <strong>NASA TechPort</strong> 航天技术项目组合（约 20,000 项目）；
             同时提供 <strong>10 个交互式功能页面</strong>（含规避策略 + 太空事件管理）和 <strong>19 个 REST API 接口</strong>（含数据源管理与太空事件管理）。
+          </p>
+          <p style="margin:14px 0 0 0;padding-top:12px;border-top:1px dashed #e2e8f0;
+                    line-height:1.7;font-size:0.93em;color:#475569">
+            🐛 <strong>问题反馈 / 功能建议</strong>：发现 bug、希望新增能力或提出改进建议，
+            欢迎在 GitHub 上提交 issue：
+            <a href="https://github.com/luoyh21/debris/issues" target="_blank"
+               style="color:#1d4ed8;text-decoration:none;font-weight:600">
+               github.com/luoyh21/debris/issues
+            </a>
           </p>
         </div>
         """,
@@ -1939,6 +1965,158 @@ elif page == "ai":
         # 强制重新渲染，让 chat_input 出现，保证后续对话可继续。
         if pending_send:
             st.rerun()
+
+# ------------------------------------------------------------------
+# 页面：功能面板（站点导航 / 信息源 / 灰度功能）
+# ------------------------------------------------------------------
+elif page == "tools":
+    st.markdown(title_row("tools", "功能面板"), unsafe_allow_html=True)
+    st.caption("整合常用站点跳转、官方信息源以及即将上线的工具入口。")
+
+    # 推断当前部署的公网 / 局域网地址。复用 sidebar 段已计算的 _api_host / _host_header。
+    try:
+        _ui_fqdn  = os.getenv("CF_TUNNEL_HOSTNAME_UI",  "").strip()
+        _api_fqdn = os.getenv("CF_TUNNEL_HOSTNAME_API", "").strip()
+    except Exception:
+        _ui_fqdn, _api_fqdn = "", ""
+    if _ui_fqdn and _api_fqdn and _api_host.lower() == _ui_fqdn.lower():
+        _site_ui_url   = f"https://{_ui_fqdn}/"
+        _site_docs_url = f"https://{_api_fqdn}/docs"
+    else:
+        _site_ui_url   = f"http://{_api_host}:8501/"
+        _site_docs_url = f"http://{_api_host}:8502/docs"
+
+    def _tool_card(title: str, url: str, desc: str,
+                   *, badge: str = "", badge_color: str = "#0ea5e9",
+                   accent: str = "#1d4ed8", clickable: bool = True) -> str:
+        """Render one tool card.  When clickable=False, only show title + desc + badge."""
+        badge_html = ""
+        if badge:
+            badge_html = (
+                f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
+                f'background:{badge_color};color:#ffffff;font-size:0.72em;font-weight:600;'
+                f'margin-left:8px;vertical-align:middle">{badge}</span>'
+            )
+        url_html = ""
+        if clickable and url:
+            url_html = (
+                f'<div style="margin-top:8px;font-size:0.82em;color:#0f172a;'
+                f'word-break:break-all">'
+                f'<a href="{url}" target="_blank" style="color:{accent};'
+                f'text-decoration:none;font-weight:500">{url} ↗</a></div>'
+            )
+        inner = (
+            '<div style="background:#ffffff;border:1px solid #e2e8f0;border-left:4px solid '
+            f'{accent};border-radius:10px;padding:16px 18px;height:100%">'
+            f'<div style="font-size:1.05em;font-weight:600;color:#1e293b">'
+            f'{title}{badge_html}</div>'
+            f'<p style="margin:8px 0 0 0;line-height:1.6;color:#475569;font-size:0.92em">{desc}</p>'
+            f'{url_html}'
+            '</div>'
+        )
+        return inner
+
+    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+
+    # —— 第一行：本系统两个核心站点 ——————————————————————————————
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        st.markdown(
+            _tool_card(
+                "🛰️ 碎片监测主站",
+                _site_ui_url,
+                "本系统 Streamlit 主界面入口。手机 / 桌面均可访问，"
+                "已通过 Cloudflare Named Tunnel 暴露到公网。",
+                badge="在线",
+                badge_color="#16a34a",
+                accent="#1d4ed8",
+            ),
+            unsafe_allow_html=True,
+        )
+    with _c2:
+        st.markdown(
+            _tool_card(
+                "📘 系统说明文档",
+                _site_docs_url,
+                "FastAPI 静态文档站。涵盖功能模块说明、算法正确性验证（含 STK 跨算法验证）、"
+                "REST API 使用指南、部署最低硬件要求。",
+                badge="在线",
+                badge_color="#16a34a",
+                accent="#0f766e",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+
+    # —— 第二行：外部权威信息源 ——————————————————————————————
+    _c3, _c4 = st.columns(2)
+    with _c3:
+        st.markdown(
+            _tool_card(
+                "🛸 SpaceNews",
+                "https://spacenews.com/",
+                "国际航天行业第一手新闻：发射动态、政策解读、商业航天与碎片治理报道。"
+                "本系统部分太空事件源（解体 / 再入 / CDM）会先在 SpaceNews 出现摘要。",
+                badge="外链",
+                badge_color="#0ea5e9",
+                accent="#0ea5e9",
+            ),
+            unsafe_allow_html=True,
+        )
+    with _c4:
+        st.markdown(
+            _tool_card(
+                "🐛 提交 Issue / 反馈建议",
+                "https://github.com/luoyh21/debris/issues",
+                "在 GitHub 上提交问题、新功能需求或者改进建议。所有反馈都会进入项目看板，"
+                "已知 issue 也会在这里同步进度。",
+                badge="外链",
+                badge_color="#0ea5e9",
+                accent="#7c3aed",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+
+    # —— 第三行：灰度测试 / 即将上线 ——————————————————————————
+    _c5, _c6 = st.columns(2)
+    with _c5:
+        st.markdown(
+            _tool_card(
+                "🤖 航天信息整理机器人",
+                "",
+                "自动抓取 SpaceNews / NASA / ESA / Space-Track 公告，按主题（解体 / 再入 / "
+                "CDM / 发射）做结构化摘要并回写到「太空事件管理」。仅对内部账号开放。",
+                badge="灰度测试中",
+                badge_color="#f59e0b",
+                accent="#f59e0b",
+                clickable=False,
+            ),
+            unsafe_allow_html=True,
+        )
+    with _c6:
+        st.markdown(
+            _tool_card(
+                "✨ 未完待续 ……",
+                "",
+                "后续将引入：天链 / 测控弧段计算器、SBM 解体事件 3D 重建动画、"
+                "国产 EGM-China 重力场模型校准、CCSDS RDM 跨机构互验等。敬请期待。",
+                badge="规划中",
+                badge_color="#64748b",
+                accent="#64748b",
+                clickable=False,
+            ),
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+    st.info(
+        "提示：本面板会随版本迭代不断扩充。如有新工具 / 信息源建议，"
+        "欢迎到 [GitHub issues](https://github.com/luoyh21/debris/issues) 留言。",
+        icon="💡",
+    )
 
 # ------------------------------------------------------------------
 # 页面：轨迹仿真（6-DOF）

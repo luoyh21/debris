@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>功能总览 · 空间碎片监测系统</title>
-<link rel="stylesheet" href="/docs/style.css?v=1.5">
+<link rel="stylesheet" href="/docs/style.css?v=1.5.2">
 </head>
 <body>
 
@@ -16,6 +16,7 @@
   <div class="toc">
     <div class="toc-section">系统概述</div>
     <a href="/docs" class="active">功能总览</a>
+    <a href="/docs#deploy" class="sub">部署最低硬件要求</a>
     <a href="/docs/datasources">数据来源与覆盖</a>
 
     <div class="toc-section">功能模块详解</div>
@@ -140,6 +141,70 @@
   <tr><td><strong>NASA TechPort</strong></td><td>NASA 航天技术项目组合（标题 / TRL / 机构 / 分类 / 起止日期），当前库 <span data-live-stat="external_sources.techport">—</span> 条</td><td>按需拉取（公开 API；可选 token）</td></tr>
 </table>
 
+<h2 id="deploy">部署最低硬件配置要求</h2>
+<p>本系统是一套<strong>自带数据库 + Web 前后端 + 后台任务</strong>的复合应用，建议按以下最低规格部署。
+开发期实测在该规格下可流畅运行所有页面（含 6-DOF 仿真、LCOLA 飞越扫描和 STK 跨算法验证回归脚本）。</p>
+
+<div class="feature">
+  <h4>💻 推荐最低规格（开发 / 内部演示用）</h4>
+  <span class="tag tag-action">部署</span>
+  <table style="margin-top:10px">
+    <tr><th>项目</th><th>最低值</th><th>说明</th></tr>
+    <tr>
+      <td><strong>CPU</strong></td>
+      <td><b>2 核</b>（x86_64，支持 SSE4.2）</td>
+      <td>6-DOF / SBM / Foster Pc 主要靠 numpy / scipy 向量化运算；核心数越多越好，但 2 核已能跑完所有页面。</td>
+    </tr>
+    <tr>
+      <td><strong>内存</strong></td>
+      <td><b>10 GB</b></td>
+      <td>典型分配：PostgreSQL ~2 GB（含 shared_buffers）／ FastAPI ~1 GB ／ Streamlit ~2 GB ／
+          缓存（LCOLA 扫描、SGP4 propagate）~3 GB ／ 系统预留 ~2 GB。</td>
+    </tr>
+    <tr>
+      <td><strong>硬盘</strong></td>
+      <td><b>80 GB</b>（推荐 SSD）</td>
+      <td>典型占用：PostgreSQL 数据 ~25 GB（融合目录 + GP 历史）／ TechPort 索引 ~3 GB ／
+          venv + 依赖 ~6 GB ／ STK 可选 ~30 GB ／ 日志 + 中间产物预留 ~16 GB。</td>
+    </tr>
+    <tr>
+      <td><strong>操作系统</strong></td>
+      <td>Linux 或 Windows 均可</td>
+      <td>推荐 Ubuntu 22.04 LTS / Debian 12 / Windows 10+ / Windows Server 2019+。
+          所有核心算法纯 Python，跨平台一致；仅 STK 验证只能在 Windows 上启用。</td>
+    </tr>
+    <tr>
+      <td><strong>Python</strong></td>
+      <td>3.10 – 3.12</td>
+      <td>已在 3.11 上做主要回归。需要 venv；不建议混用系统 Python。</td>
+    </tr>
+    <tr>
+      <td><strong>网络</strong></td>
+      <td>出网带宽 ≥ 2 Mbps</td>
+      <td>用于数据源增量拉取（Space-Track / DISCOS / GCAT / TechPort）和可选的 Cloudflare 隧道；
+          完全离线部署也可（启动后内部回退到本地缓存）。</td>
+    </tr>
+  </table>
+</div>
+
+<div class="feature">
+  <h4>🚀 推荐生产规格（多用户 / 公网常驻）</h4>
+  <span class="tag tag-action">扩容</span>
+  <table style="margin-top:10px">
+    <tr><th>项目</th><th>推荐值</th><th>说明</th></tr>
+    <tr><td>CPU</td><td>4 核及以上</td><td>并发 ≥ 5 个 Streamlit 会话时强烈建议 4 核，能让 LCOLA 后台扫描和前台交互不互相阻塞。</td></tr>
+    <tr><td>内存</td><td>16 GB</td><td>给 PostgreSQL 提升到 4–6 GB shared_buffers，并发查询和 GP 增量入库会更快。</td></tr>
+    <tr><td>硬盘</td><td>160 GB SSD</td><td>多用户场景下日志、CCSDS 文件、OEM 导出会显著增长，预留出空间。</td></tr>
+    <tr><td>STK 跨算法验证</td><td>Windows + Ansys STK 12.1+</td><td>仅在 Windows 上启用；Linux 部署会自动屏蔽相关按钮，其它功能不受影响。</td></tr>
+  </table>
+</div>
+
+<div class="info-box">
+  📋 <strong>验证：</strong>v1.5 在 2 核 / 10 GB / 80 GB 的最小规格上完整跑通了
+  <span data-live-stat="unified_total">—</span> 条目标的融合目录、全部 STK 跨算法验证脚本、
+  以及 LCOLA 飞越扫描（±2h 窗口，1 s 步长）。
+</div>
+
 <h2>系统能力概览</h2>
 <div style="display:grid;grid-template-columns:1fr;gap:12px;margin:16px 0 24px">
   <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
@@ -182,7 +247,7 @@
 </div>
 
 </div>
-<script src="/docs/live-stats.js?v=1.5"></script>
-<script src="/docs/toc.js?v=1.5"></script>
+<script src="/docs/live-stats.js?v=1.5.2"></script>
+<script src="/docs/toc.js?v=1.5.2"></script>
 </body>
 </html>
