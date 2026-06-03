@@ -1798,10 +1798,10 @@ _RT_JS_TEMPLATE = """
   el.addEventListener('touchstart', function(){{pauseFor(800);}}, {{passive:true}});
   el.addEventListener('touchmove',  function(){{pauseFor(800);}}, {{passive:true}});
   el.addEventListener('wheel',      function(){{pauseFor(600);}}, {{passive:true}});
-  var t0=performance.now(),last=0;
+  var t0=performance.now(),last=0,updateMs={update_ms};
   function tick(now){{
     if(paused){{requestAnimationFrame(tick);return;}}
-    if(now-last<500){{requestAnimationFrame(tick);return;}}
+    if(now-last<updateMs){{requestAnimationFrame(tick);return;}}
     last=now;
     var elapsed=now-t0,total=N*stepMs;
     var pos=(elapsed%total)/stepMs;
@@ -1878,10 +1878,10 @@ $plotly_include
     }
   }
 
-  var t0=performance.now(), last=0, lastI=-1;
+  var t0=performance.now(), last=0, lastI=-1, updateMs=2000;
   function tick(now){
     if(paused){requestAnimationFrame(tick); return;}
-    if(now-last<500){requestAnimationFrame(tick); return;}
+    if(now-last<updateMs){requestAnimationFrame(tick); return;}
     last=now;
     var elapsed=now-t0, total=N*stepMs;
     var pos=(elapsed%total)/stepMs;
@@ -1989,6 +1989,7 @@ def _render_realtime_ortho(data: dict, height: int = 530, div_id: str = "rt-glob
             fig_json=fig.to_json(),
             frames_json=_json.dumps(fd, separators=(',', ':')),
             step_ms=int(step_s * 1000),
+            update_ms=2000,
             trace_idx=0,
             k0="lon", k1="lat",
             extra_arr_decl="",
@@ -2045,6 +2046,7 @@ def _render_realtime_3d(data: dict, layer: dict, height: int = 680):
         fig_json=fig.to_json(),
         frames_json=_json.dumps(fd, separators=(',', ':')),
         step_ms=int(step_s * 1000),
+        update_ms=500,
         trace_idx=n_earth_traces,
         k0="x", k1="y",
         extra_arr_decl=",c=new Array(n)",
@@ -2073,7 +2075,7 @@ def _render_global_view():
         obj_type  = st.selectbox("目标类型",
                                   ["ALL", "DEBRIS", "PAYLOAD", "ROCKET BODY"],
                                   key="gv_type")
-        n_limit   = st.slider("显示上限", 2000, 30000, 12000, step=1000,
+        n_limit   = st.slider("显示上限", 2000, 30000, 4000, step=1000,
                               key="gv_limit")
 
         if st.button("刷新数据", key="gv_refresh"):
@@ -2106,12 +2108,21 @@ def _render_global_view():
             label_visibility="collapsed",
         )
 
+        animate = st.toggle(
+            "实时动画（SGP4 36 帧）",
+            value=False,
+            key="gv_animate",
+            help="默认关闭：进入页面只渲染轻量静态地球，秒开、不卡。开启后才对目标做 36 帧实时 SGP4 "
+                 "递推生成动画（计算量较大，首次约数秒）。",
+        )
+
         show_trails = st.toggle(
             "显示轨迹拖尾",
             value=False,
             key="gv_show_trails",
             help="开启后，每个碎片会从当前动画起点开始留下一条与自身同色的轨道拖尾，"
-                 "仅显示『已经走过的路径』——不会展示未来位置；动画每次循环回到起点时拖尾自动复位。",
+                 "仅显示『已经走过的路径』——不会展示未来位置；动画每次循环回到起点时拖尾自动复位。"
+                 "（仅在开启『实时动画』时生效）",
         )
 
     with col_map:
@@ -2160,24 +2171,34 @@ def _render_global_view():
             # the inline payload stays around ~700 KB.
             _gv_limit = min(n_limit, 1800)
 
-            @st.fragment(run_every=timedelta(seconds=600))
-            def _gv_animated_ortho():
-                t_now = datetime.now(timezone.utc) + timedelta(hours=int(hour_offset))
-                rd = _compute_realtime_frames(
-                    t_base_iso=t_now.isoformat(),
-                    n_frames=36, step_s=10.0,
-                    alt_min=_gv_alt_min, alt_max=_gv_alt_max,
-                    obj_type=_gv_obj_type, limit=_gv_limit,
+            if not animate:
+                # 默认：轻量静态地球，使用 Streamlit 自带 plotly 渲染（秒开、无需 CDN、不阻塞）
+                st.plotly_chart(make_globe_ortho(df), use_container_width=True,
+                                config=dict(scrollZoom=True, displayModeBar=False))
+                st.caption(
+                    "静态视图（当前时刻位置，秒开）。需要连续运动动画时，"
+                    "请打开左侧『实时动画（SGP4 36 帧）』开关。"
                 )
-                if rd.get("frames"):
-                    _render_realtime_ortho(
-                        rd, height=530, div_id="rt-globe",
-                        show_trails=bool(st.session_state.get("gv_show_trails", False)),
-                    )
-                else:
-                    st.plotly_chart(make_globe_ortho(df), use_container_width=True,
-                                    config=dict(scrollZoom=True, displayModeBar=False))
-            _gv_animated_ortho()
+            else:
+                @st.fragment(run_every=timedelta(seconds=600))
+                def _gv_animated_ortho():
+                    t_now = datetime.now(timezone.utc) + timedelta(hours=int(hour_offset))
+                    with st.spinner("实时 SGP4 递推中（首次约数秒）…"):
+                        rd = _compute_realtime_frames(
+                            t_base_iso=t_now.isoformat(),
+                            n_frames=36, step_s=10.0,
+                            alt_min=_gv_alt_min, alt_max=_gv_alt_max,
+                            obj_type=_gv_obj_type, limit=_gv_limit,
+                        )
+                    if rd.get("frames"):
+                        _render_realtime_ortho(
+                            rd, height=530, div_id="rt-globe",
+                            show_trails=bool(st.session_state.get("gv_show_trails", False)),
+                        )
+                    else:
+                        st.plotly_chart(make_globe_ortho(df), use_container_width=True,
+                                        config=dict(scrollZoom=True, displayModeBar=False))
+                _gv_animated_ortho()
         elif view_mode == _gv_flat:
             _render_pydeck_flat_map(df)
 
@@ -2207,7 +2228,7 @@ def _render_global_view():
             alt_min=0.0,
             alt_max=42000.0,
             obj_type=obj_type,
-            limit=max(15000, n_limit),
+            limit=n_limit,
         )
         if not full_df.empty:
             st.markdown(section_title("chart_line", "高度分布（全空间经济范围）", level=4, icon_size=18), unsafe_allow_html=True)
