@@ -104,6 +104,36 @@ def get_db_session_factory():
         return None
 
 
+@st.cache_resource(show_spinner=False)
+def _prewarm_page_modules():
+    """进程级一次性预热：后台线程预导入各页面的重量级模块。
+
+    Streamlit 对每个页面模块按需导入（首次进入该页才 import），导致页面切换的
+    首次点击较慢。这里在进程内用一个守护线程提前把这些模块导入好（仅 import，
+    不调用任何 st.* 接口，无 ScriptRunContext 风险），使后续页面切换近乎秒开。
+    用 cache_resource 保证每个进程只执行一次。"""
+    import threading
+
+    def _warm():
+        import importlib
+        for mod in (
+            "plotly.express", "plotly.graph_objects", "pydeck", "altair",
+            "streamlit_app.viz_explorer", "streamlit_app.launch_trend",
+            "streamlit_app.events_page", "streamlit_app.longterm_risk",
+            "streamlit_app.avoidance_page", "streamlit_app.ordem_microdebris",
+        ):
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+
+    threading.Thread(target=_warm, daemon=True, name="page-prewarm").start()
+    return True
+
+
+_prewarm_page_modules()
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def run_query(
     sql: str,

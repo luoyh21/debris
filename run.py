@@ -264,8 +264,72 @@ def cmd_lcola(args):
         print(f"\n  Report saved → {args.output}")
 
 
+def _spawn_streamlit_warmup(port: int):
+    """后台预热线程：消除「第一次打开很慢」。
+
+    Streamlit 只在浏览器（websocket）首次连接时才执行脚本，因此首个访问者要
+    独自承担「进程级重依赖导入 + 数据库引擎创建 + 首页缓存冷计算」的全部开销。
+
+    本线程在服务就绪后，自己以 websocket 客户端身份向 Streamlit 发送一条
+    BackMsg(rerun_script)，提前触发一次完整脚本运行，把进程内全局缓存
+    （st.cache_data / st.cache_resource）与重依赖导入预热好；之后每 40s（略小于
+    首页快照 45s 的 TTL）保活一次，使所有真实用户的「第一次打开」都命中热缓存。
+
+    纯尽力而为：任何依赖缺失或异常都会被静默忽略，绝不影响主服务。
+    """
+    import threading
+
+    def _loop():
+        try:
+            import asyncio, time, urllib.request
+            import websockets  # streamlit 运行环境自带
+            from streamlit.proto.BackMsg_pb2 import BackMsg
+        except Exception:
+            return
+
+        base = f"http://127.0.0.1:{port}"
+        for _ in range(180):  # 最多等 3 分钟服务就绪
+            try:
+                if urllib.request.urlopen(base + "/_stcore/health", timeout=2).read().strip() == b"ok":
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+
+        uri = f"ws://127.0.0.1:{port}/_stcore/stream"
+
+        async def _one_run():
+            bm = BackMsg(); bm.rerun_script.SetInParent()
+            async with websockets.connect(
+                uri, open_timeout=10, max_size=None,
+                ping_interval=None, subprotocols=["streamlit"],
+            ) as ws:
+                await ws.send(bm.SerializeToString())
+                t0 = time.time()
+                while time.time() - t0 < 8:        # 收完首屏消息即可
+                    try:
+                        await asyncio.wait_for(ws.recv(), timeout=3)
+                    except Exception:
+                        break
+
+        first = True
+        while True:
+            try:
+                asyncio.run(_one_run())
+                if first:
+                    print(f"  [warmup] 首屏预热完成，后续每 40s 保活 (port {port})", flush=True)
+                    first = False
+            except Exception:
+                pass
+            time.sleep(40)
+
+    threading.Thread(target=_loop, daemon=True, name="st-warmup").start()
+
+
 def cmd_app(args):
     app_path = os.path.join(os.path.dirname(__file__), "streamlit_app", "app.py")
+    # 服务启动前先拉起预热线程（它会先等 /_stcore/health 就绪再预热）
+    _spawn_streamlit_warmup(int(args.port))
     subprocess.run(
         [sys.executable, "-m", "streamlit", "run", app_path,
          "--server.port", str(args.port),
