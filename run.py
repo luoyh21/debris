@@ -317,11 +317,12 @@ def _spawn_streamlit_warmup(port: int):
             try:
                 asyncio.run(_one_run())
                 if first:
-                    print(f"  [warmup] 首屏预热完成，后续每 40s 保活 (port {port})", flush=True)
+                    print(f"  [warmup] 首屏预热完成，后续每 90s 保活 (port {port})", flush=True)
                     first = False
             except Exception:
                 pass
-            time.sleep(40)
+            # 略拉长保活间隔，减少与用户切页抢 CPU/DB（首页快照 TTL=45s，90s 仍够热）
+            time.sleep(90)
 
     threading.Thread(target=_loop, daemon=True, name="st-warmup").start()
 

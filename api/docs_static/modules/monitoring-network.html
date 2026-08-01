@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数据库查询及导出 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css?v=1.5.2">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.5</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/search-export">搜索与导出</a>
+    <a href="/docs/modules/monitoring-network" class="active">数据库查询及导出</a>
+    <a href="/docs/modules/monitoring-network#ssa" class="sub">空间物体监测设备库</a>
+    <a href="/docs/modules/monitoring-network#swx" class="sub">空间天气监测设备库</a>
+    <a href="/docs/modules/monitoring-network#ttc" class="sub">全球测控站库</a>
+    <a href="/docs/modules/monitoring-network#api" class="sub">REST API</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/events">太空事件管理</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>数据库查询及导出</h1>
+<p><span class="tag tag-scene">场景</span> 三大要素库检索与批量导出（XLSX / CSV）：空间物体监测设备、空间天气监测设备、全球测控站。</p>
+<p>本模块依据研究报告 <code>docs/空间监测数据库构建.md</code>，并<strong>多渠道拉取合并去重</strong>
+（SatNOGS / INTERMAGNET / GIRO / SuperDARN / Space-Track / DISCOSweb launch-sites·organisations /
+Brahe 社区地面站 / Starlink 社区网关 / 公开站策展）落地要素库；渠道统计见
+<code>data/monitoring_network/CHANNEL_STATS.md</code>。使用 PostgreSQL + PostGIS
+（<code>geometry(Point,4326)</code> + GiST）存储站点坐标。数据不进入 <code>v_unified_objects</code> 在轨目标视图，为独立专题库。</p>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>左侧导航点击 <strong>「监测与测控网络」</strong></li>
+  <li>在标签页间切换：空间物体监测 / 空间天气监测 / 全球测控站 / DISCOS 发射场 / DISCOS 组织</li>
+  <li>可用名称关键词、网络多选、国家/地区中文关键词筛选</li>
+  <li>表格下方展示地基站点散点地图（天基设备不画点）</li>
+</ol>
+
+<h2 id="ssa">① 空间物体监测设备 <code>external_ssa_sensors</code></h2>
+<p>覆盖官方与军民（SSN / TraCSS）、学术与区域（ESA DISCOS / ISON / TMDS）、商业（LookUpSpace SORASYS）等渠道示例节点。</p>
+<table>
+  <tr><th>字段</th><th>说明</th></tr>
+  <tr><td>sensor_id / name / name_cn</td><td>唯一 ID 与中英文名称</td></tr>
+  <tr><td>sensor_class</td><td>spaceborne / ground_radar / ground_optical / network_node</td></tr>
+  <tr><td>network / operator / country</td><td>所属网络、运营方、国家（中文）</td></tr>
+  <tr><td>lat / lon / alt_m / geom</td><td>WGS84 坐标与 PostGIS Point</td></tr>
+  <tr><td>frequency_band / capability</td><td>频段与监测能力描述</td></tr>
+</table>
+
+<h2 id="swx">② 空间天气监测设备 <code>external_space_weather_sensors</code></h2>
+<p>覆盖 NOAA SWPC、GOES-R、NASA Aura、ESA INTEGRAL、EISCAT / Tromsø、INTERMAGNET、GIRO、APIS、子午工程等。</p>
+<table>
+  <tr><th>字段</th><th>说明</th></tr>
+  <tr><td>sensor_class</td><td>spaceborne / magnetometer / ionosonde / isr / optical_uv / network</td></tr>
+  <tr><td>observables</td><td>TEC / F10.7 / Kp·Ap / 高能粒子 / 极光 等</td></tr>
+  <tr><td>data_format</td><td>NetCDF / HDF5 / CSV / REST 等</td></tr>
+</table>
+
+<h2 id="ttc">③ 全球测控站 <code>external_ttc_stations</code></h2>
+<p>覆盖 ESTRACK、NASA DSN、USGS Landsat、KSAT、AWS Ground Station（Brahe 精确坐标）、
+Azure Orbital（已退役历史近似点）、ATLAS / Leaf / NEN / SSC / Viasat、
+SatNOGS 全量、Starlink 社区网关（≈360+）、DISCOS 发射场镜像，以及 ThumbNet 枢纽与中国测控网代表站。</p>
+<table>
+  <tr><th>字段</th><th>说明</th></tr>
+  <tr><td>station_type</td><td>deep_space / near_earth / polar / commercial_gsaas / crowdsourced / launch_site</td></tr>
+  <tr><td>antenna_diam_m / bands</td><td>天线口径与频段（S/X/Ka/UHF…）</td></tr>
+</table>
+
+<h2 id="discos">④⑤ DISCOS 发射场 / 组织</h2>
+<p><code>external_discos_launch_sites</code>（DISCOSweb <code>/api/launch-sites</code>）与
+<code>external_discos_organisations</code>（<code>/api/organisations</code>）。需 <code>.env</code> 中
+<code>ESA_DISCOS_TOKEN</code>；强制刷新：<code>--refresh-discos</code>。</p>
+
+<h2 id="esalof">⑥⑦ EsaLOF / EsaLOG（DISCOSweb v2 API）</h2>
+<p><strong>请求头必须声明版本</strong>（否则易踩坑）：</p>
+<pre><code>Authorization: Bearer &lt;ESA_DISCOS_TOKEN&gt;
+DiscosWeb-Api-Version: 2
+Accept: application/vnd.api+json</code></pre>
+<ul>
+  <li><strong>EsaLOF</strong> <code>external_discos_esalof</code> —
+    <code>GET /api/fragmentations?include=objects</code>
+    （注意路径是 <code>fragmentations</code>，不是部分文档写的 <code>fragmentation-events</code>）。
+    含解体时间、eventType、评论，以及关联物体 mass / xSectAvg(RCS)。≈673 场。</li>
+  <li><strong>EsaLOG</strong> <code>external_discos_esalog</code> —
+    <code>GET /api/initial-orbits?filter=and(ge(sma,40000000),le(sma,45000000))&amp;include=object</code>
+    （SMA 单位为<strong>米</strong>；GEO 带 40–45 Mm）。按物体去重，保留最接近 GEO 的轨道。≈1400+。</li>
+</ul>
+<div class="info-box">
+  💡 <strong>摄入：</strong><code>python scripts/ingest_discos_esalof_esalog.py --refresh --sync-events</code><br>
+  公共客户端：<code>scripts/discos_client.py</code>。测控网三库仍用
+  <code>python scripts/ingest_monitoring_network.py</code>。
+  ThumbNet 全量节点仍需自备 CSV/JSON。
+</div>
+
+<h2 id="api">REST API</h2>
+<table>
+  <tr><th>方法 / 路径</th><th>说明</th></tr>
+  <tr><td><code>GET /api/v1/network/ssa-sensors</code></td><td>空间物体监测设备；可选 <code>network</code> / <code>country</code> / <code>q</code></td></tr>
+  <tr><td><code>GET /api/v1/network/space-weather-sensors</code></td><td>空间天气监测设备</td></tr>
+  <tr><td><code>GET /api/v1/network/ttc-stations</code></td><td>全球测控站</td></tr>
+  <tr><td><code>GET /api/v1/network/discos-launch-sites</code></td><td>DISCOS 发射场；可选 <code>q</code></td></tr>
+  <tr><td><code>GET /api/v1/network/discos-organisations</code></td><td>DISCOS 组织；可选 <code>q</code></td></tr>
+  <tr><td><code>GET /api/v1/network/discos-esalof</code></td><td>EsaLOF 碎片化事件</td></tr>
+  <tr><td><code>GET /api/v1/network/discos-esalog</code></td><td>EsaLOG GEO 物体</td></tr>
+</table>
+<pre><code>curl "http://&lt;host&gt;:8502/api/v1/network/ttc-stations?network=ESTRACK&amp;country=澳大利亚"
+curl "http://&lt;host&gt;:8502/api/v1/network/discos-esalof?q=Starlink"
+curl "http://&lt;host&gt;:8502/api/v1/network/discos-esalog?q=Syncom"</code></pre>
+
+</div>
+<script src="/docs/live-stats.js?v=1.5.2"></script>
+<script src="/docs/toc.js?v=1.5.2"></script>
+</body>
+</html>

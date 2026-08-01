@@ -563,8 +563,11 @@ def incremental_esa(since: dt.datetime, engine) -> int:
     if not token:
         log.warning("  ESA_DISCOS_TOKEN 未设置，跳过 ESA DISCOS 增量更新")
         return 0
-    headers = {"Authorization": f"Bearer {token}",
-               "Accept": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "DiscosWeb-Api-Version": "2",
+        "Accept": "application/vnd.api+json",
+    }
     base = "https://discosweb.esoc.esa.int/api"
     iso = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 

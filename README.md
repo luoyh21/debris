@@ -233,6 +233,8 @@ ipconfig getifaddr en0
 |------|------|
 | **🌍 系统概览** | 总览：对象数、碎片数、轨迹段数、高危事件数；类型分布图；高度分布图 |
 | **📚 目标目录** | 可筛选的目标对象数据库表（类型/国家/名称/近地点高度） |
+| **🔍 搜索与导出** | 多维条件检索在轨目标（高度/倾角/偏心率/国家/类型/RCS/质量/太阳同步/受控），自动计算高度·线/角速度·SSO 判定·受控(推定)·质量·尺寸；**一直存在的「导出 xlsx」按钮**：浏览器下载 + 服务器 `exports/` 本地另存（含「字段与口径说明」sheet）。同源 REST：`POST /api/v1/catalog/search`（`format=json\|xlsx`） |
+| **🌐 数据库查询及导出** | 三大要素库检索+批量导出（XLSX/CSV）：① 空间物体监测设备 `external_ssa_sensors` ② 空间天气监测设备 `external_space_weather_sensors` ③ 测控站 `external_ttc_stations`（PostgreSQL+PostGIS）。摄入：`ingest_monitoring_network.py`。REST：`/api/v1/network/{ssa-sensors\|space-weather-sensors\|ttc-stations}` |
 | **🛤️ 轨迹片段** | 按时间窗口和 NORAD ID 查询 SGP4 轨迹段 |
 | **🚀 轨迹仿真** | 配置运载火箭与发射参数，运行 6-DOF 仿真；高度/速度/质量曲线；Monte Carlo 协方差 |
 | **📄 OEM 管理** | 从仿真结果生成 CCSDS OEM 2.0 文件；或解析已有 OEM 文件 |
@@ -323,6 +325,7 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
 | **ESA DISCOS** | 欧空局空间物体数据库 | **10,000 条**（API 批量获取） | 欧洲空间局 DISCOSweb API，含物体质量、截面积、碎片数量、预测再入日期 |
 | **Asterank** | 小行星 / 近地天体（NEO）专题库 | **数千条**（API + 本地缓存） | http://www.asterank.com 维护，含小行星开普勒轨道根数、光谱类型、Δv、经济开采估值（price/profit） |
 | **NASA TechPort** | 航天技术项目组合（technology portfolio） | **~20,000 个项目**（REST API + 本地缓存） | https://techport.nasa.gov/help/api ；含 NASA 资助的技术项目、TRL、组织、分类、起止日期、目标方向；可选 API Token（每次刷新 TechPort 站点都会换 token） |
+| **监测与测控网络** | SSA / SWX / TT&C + DISCOS 发射场/组织 | SSA=154 · SWX=2,277 · TT&C=4,936 · LS=53 · Org=2,385 | GEODSS、ISON、Falcon、OWL-Net、ILRS、MPC、NASA HPDE/SPASE、WMO OSCAR/Space、SuperMAG、INTERMAGNET、NMDB、GIRO、SuperDARN、Space-Track、SatNOGS 等；`CHANNEL_STATS.md` |
 
 系统自动完成数据去重与清洗：
 - Space-Track 数据用于实时轨道传播（SGP4）和碰撞风险计算
@@ -342,6 +345,18 @@ WHERE geom_eci && ST_Expand(launch_bbox_eci, 200)
 | `external_unoosa_launches`  | UNOOSA 年度发射统计（1,274 行） |
 | `external_asterank`         | Asterank 小行星 / NEO 专题库（数千行） |
 | `external_techport`         | NASA TechPort 航天技术项目组合（~20,000 项目，含 TRL、机构、分类、起止日期） |
+| `external_ssa_sensors`      | 全球天/地基空间物体监测设备（154；GEODSS/ISON/Falcon/OWL-Net/ILRS/MPC/SSN/ESA-SST + Space-Track；商业网络仅作聚合记录） |
+| `external_space_weather_sensors` | 全球天/地基空间天气监测设备（2,277；SPASE/OSCAR-Space/SuperMAG/INTERMAGNET/NMDB/GIRO/SuperDARN/Space-Track） |
+| `external_ttc_stations`     | 全球测控站（SatNOGS + Brahe + Starlink 社区 + ESTRACK/DSN/KSAT/AWS/GSaaS…） |
+| `external_discos_launch_sites` | DISCOSweb `/api/launch-sites` |
+| `external_discos_organisations` | DISCOSweb `/api/organisations` |
+| `external_discos_esalof` | EsaLOF：`/api/fragmentations?include=objects`（≈673） |
+| `external_discos_esalog` | EsaLOG：GEO 带 initial-orbits + object 质量/RCS（≈1400+） |
+
+> schema：`002`/`003`/`004_discos_esalof_esalog.sql`。  
+> 测控网：`python scripts/ingest_monitoring_network.py`  
+> EsaLOF/LOG：`python scripts/ingest_discos_esalof_esalog.py --refresh --sync-events`  
+> DISCOS v2 公共头：`scripts/discos_client.py`（**必须** `DiscosWeb-Api-Version: 2`）。
 
 ### 二、轨道力学仿真
 

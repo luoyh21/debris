@@ -22,6 +22,7 @@ import streamlit as st
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+from analytics.country_labels import add_country_or_org_column
 from streamlit_app.nav_icons import icon_inline, section_title, title_row
 
 log = logging.getLogger(__name__)
@@ -585,7 +586,7 @@ def load_positions_at_time(
                 "alt_min":     alt_min,
                 "alt_max_buf": alt_max + 500,
                 "obj_type":    obj_u,
-                "lim":         limit,
+                "lim":         int(limit) * 4 + 2000,  # DEBRIS_FIX_V1: 过量取候选，递推后截断到 limit
             }).fetchall()
 
         jd, fr = jday(
@@ -619,6 +620,8 @@ def load_positions_at_time(
                 "lat": float(lat),
                 "alt_km": float(max(0.0, alt)),
             })
+            if len(out) >= int(limit):  # DEBRIS_FIX_V1: 凑满上限即停止递推
+                break
 
         df = pd.DataFrame(out)
         return df
@@ -2377,16 +2380,20 @@ def _render_layer_drilldown():
     # Detail table
     if not df3d.empty:
         with st.expander(f"{cur['label']} 层 · 目标列表（前 30）", expanded=False):
-            st.dataframe(
-                df3d[["norad_cat_id","name","object_type","alt_km",
-                       "perigee_km","apogee_km","inclination","country_code"]]
+            detail_df = (
+                df3d[["norad_cat_id", "name", "object_type", "alt_km",
+                      "perigee_km", "apogee_km", "inclination", "country_code"]]
                 .sort_values("alt_km").head(30)
                 .rename(columns={
                     "norad_cat_id": "NORAD ID", "name": "名称",
                     "object_type": "类型",      "alt_km": "当前高度(km)",
                     "perigee_km":  "近地点(km)", "apogee_km": "远地点(km)",
-                    "inclination": "倾角(°)",    "country_code": "国家",
-                }),
+                    "inclination": "倾角(°)",    "country_code": "国家代码",
+                })
+            )
+            detail_df = add_country_or_org_column(detail_df)
+            st.dataframe(
+                detail_df,
                 use_container_width=True, hide_index=True,
             )
 

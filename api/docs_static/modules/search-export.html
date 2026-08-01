@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>搜索与导出 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css?v=1.5.2">
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">使用文档 v1.5</div>
+    <a class="back-link" href="#" onclick="window.open(location.protocol+'//'+location.hostname+':8501','_blank');return false">← 返回系统主页</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">系统概述</div>
+    <a href="/docs">功能总览</a>
+    <a href="/docs/datasources">数据来源与覆盖</a>
+
+    <div class="toc-section">功能模块详解</div>
+    <a href="/docs/modules/overview">系统概览面板</a>
+    <a href="/docs/modules/visualization">可视化探索</a>
+    <a href="/docs/modules/catalog">目标目录</a>
+    <a href="/docs/modules/search-export" class="active">搜索与导出</a>
+    <a href="/docs/modules/search-export#filters" class="sub">筛选条件</a>
+    <a href="/docs/modules/search-export#fields" class="sub">计算字段与口径</a>
+    <a href="/docs/modules/search-export#export" class="sub">导出 xlsx</a>
+    <a href="/docs/modules/search-export#api" class="sub">REST API 接口</a>
+    <a href="/docs/modules/simulation">轨迹仿真</a>
+    <a href="/docs/modules/lcola">LCOLA 飞越筛选</a>
+    <a href="/docs/modules/collision">碰撞风险评估</a>
+    <a href="/docs/modules/avoidance">规避策略生成器</a>
+    <a href="/docs/modules/events">太空事件管理</a>
+    <a href="/docs/modules/longterm">长期风险评估</a>
+    <a href="/docs/modules/ai">AI 助手</a>
+    <a href="/docs/modules/validation">算法正确性验证</a>
+    <a href="/docs/modules/stk_validation">STK 跨算法验证</a>
+
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/docs/api/region" class="sub">区域碎片查询</a>
+    <a href="/docs/api/rcs" class="sub">RCS 筛选</a>
+    <a href="/docs/api/stats" class="sub">系统统计</a>
+  </div>
+</div>
+
+<div class="main">
+
+<h1>搜索与导出</h1>
+<p><span class="tag tag-scene">场景</span> 按多维条件检索在轨目标群体，一键导出为 Excel（xlsx），用于离线分析、报告与归档。</p>
+<p>「搜索与导出」是在「目标目录」之上的<strong>分析型检索</strong>页面：它实时关联
+<strong>SATCAT（Space-Track）</strong>、<strong>最新 GP/TLE 轨道根数</strong>、
+<strong>UCS 运营卫星库</strong> 与 <strong>ESA DISCOS</strong>，并即时计算每个目标的
+<strong>轨道高度、线/角速度、太阳同步判定、受控（推定）、质量与尺寸</strong>，
+再按条件筛选、一键导出。前端页面与 REST API 同源（<code>analytics/catalog_search.py</code>）。</p>
+
+<h2>使用步骤</h2>
+<ol class="steps">
+  <li>在左侧导航栏点击 <strong>「搜索与导出」</strong></li>
+  <li>在 <strong>筛选条件</strong> 表单中设置条件（可任意组合，留空即不限制）</li>
+  <li>点击 <strong>「🔍 搜索」</strong>，结果表格在下方显示并给出命中数</li>
+  <li>点击 <strong>一直存在的「⬇ 导出 xlsx」</strong> 按钮：浏览器下载 Excel，同时在服务器本地
+      <code>exports/</code> 目录另存一份（显示完整路径）</li>
+</ol>
+
+<h2 id="filters">筛选条件</h2>
+<table>
+  <tr><th>筛选项</th><th>选项 / 范围</th><th>说明</th></tr>
+  <tr><td><strong>名称 / NORAD / COSPAR 关键词</strong></td><td>自由输入</td><td>同时模糊匹配名称、NORAD 编号与国际编号</td></tr>
+  <tr><td><strong>对象类型</strong></td><td>PAYLOAD / ROCKET BODY / DEBRIS / UNKNOWN（多选）</td><td>默认仅载荷（卫星）</td></tr>
+  <tr><td><strong>国家 / 地区</strong></td><td>中文关键词（自由输入）</td><td>对中文国家名模糊匹配，如 <code>中国</code> / <code>美国</code> / <code>俄罗斯</code>；优先 UCS 国家全称，否则 SATCAT 国家代码映射为中文</td></tr>
+  <tr><td><strong>轨道类型</strong></td><td>全部 / 仅太阳同步(SSO) / 排除SSO / LEO / MEO / GEO</td><td>SSO 用 J2 进动率严格判定（见下）</td></tr>
+  <tr><td><strong>是否受控（推定）</strong></td><td>全部 / 仅受控(推定) / 仅存疑</td><td>载荷且在 UCS 运营库或 DISCOS 活跃 → 受控</td></tr>
+  <tr><td><strong>RCS 尺寸等级</strong></td><td>SMALL / MEDIUM / LARGE（多选）</td><td>SATCAT 雷达截面积分类</td></tr>
+  <tr><td><strong>平均高度范围</strong></td><td>最低 / 最高 (km)</td><td>由最新平均运动反推半长轴计算（a−Rᴇ）</td></tr>
+  <tr><td><strong>倾角范围</strong></td><td>0–180° 滑块</td><td>轨道面与赤道面夹角</td></tr>
+  <tr><td><strong>偏心率上限</strong></td><td>0–1 滑块</td><td>1.0 表示不限制</td></tr>
+  <tr><td><strong>质量范围</strong></td><td>最小 / 最大 (kg)</td><td>0 表示不限制；优先 DISCOS 实测，回退 UCS 发射质量</td></tr>
+</table>
+<div class="info-box">
+  📦 <strong>结果不设上限</strong>：返回<strong>全部</strong>符合条件的目标（按平均高度升序），可一次性导出完整清单。
+</div>
+<div class="info-box">
+  💡 当前检索范围为 <strong>在轨对象</strong>（无 <code>decay_date</code>）。条件留空即代表不限制；多个条件之间为「与」关系。
+</div>
+
+<h2 id="fields">计算字段与口径</h2>
+<table>
+  <tr><th>字段</th><th>计算 / 来源</th></tr>
+  <tr><td><strong>平均 / 近 / 远地点高度</strong></td><td>由最新平均运动 n 反推 a=(μ/n²)^(1/3)，μ=398600.4418，Rᴇ=6378.137；平均高度=a−Rᴇ</td></tr>
+  <tr><td><strong>线速度（平均/近/远地点）</strong></td><td>平均=√(μ/a)；近/远地点用活力公式 v=√(μ(2/r−1/a))</td></tr>
+  <tr><td><strong>角速度</strong></td><td>轨道平均角速率=平均运动 n，给出 °/s 与 rad/s</td></tr>
+  <tr><td><strong>太阳同步(SSO)</strong></td><td>J2 升交点进动率 Ω̇=−1.5·n·J2·(Rᴇ/p)²·cos i；判据 |Ω̇−0.98565°/day|&lt;0.07 且 e&lt;0.05 且 95°&lt;i&lt;102°；并给出该高度理论 SSO 倾角</td></tr>
+  <tr><td><strong>质量 / 尺寸</strong></td><td>质量优先 ESA DISCOS 实测、回退 UCS；尺寸=DISCOS 平均截面积+形状，等效尺寸=2√(A/π)；另附 SATCAT RCS 等级</td></tr>
+  <tr><td><strong>可控（推定）</strong></td><td>库中无「姿态可控」直接字段；以「载荷 且（在 UCS 运营库 或 DISCOS 活跃）」作为最佳代理指标，请结合实际核实</td></tr>
+</table>
+
+<h2 id="export">导出 xlsx</h2>
+<div class="feature">
+  <h4>⬇ 一键导出 Excel</h4>
+  <span class="tag tag-action">导出</span>
+  <p style="margin-top:10px">导出按钮<strong>始终可见</strong>（搜索出结果后可用）。点击后：</p>
+  <ul>
+    <li>浏览器下载 <code>catalog_search_YYYYMMDD_HHMMSS.xlsx</code>；</li>
+    <li>同时在服务器本地 <code>exports/</code> 目录另存同名文件，并在页面显示完整路径；</li>
+    <li>工作簿含两个 sheet：<strong>搜索结果</strong>（33 列规范中文表头）与 <strong>字段与口径说明</strong>。</li>
+  </ul>
+</div>
+
+<h2 id="api">REST API 接口</h2>
+<p>同样能力通过 REST 暴露，便于编程化批量获取与集成：</p>
+<table>
+  <tr><th>方法 / 路径</th><th>说明</th></tr>
+  <tr><td><code>POST /api/v1/catalog/search</code></td><td>请求体为筛选条件（JSON）；<code>?format=json</code> 返回 <code>{count, results}</code>，<code>?format=xlsx</code> 直接返回 Excel 附件</td></tr>
+</table>
+<pre><code># 导出 600–800km 太阳同步载荷为 xlsx
+curl -X POST "http://&lt;host&gt;:8502/api/v1/catalog/search?format=xlsx" \
+     -H "Content-Type: application/json" \
+     -d '{"object_types":["PAYLOAD"],"alt_min":600,"alt_max":800,"orbit":"仅太阳同步(SSO)"}' \
+     -o catalog_search.xlsx</code></pre>
+<div class="info-box">
+  💡 在 <a href="/api/docs">/api/docs</a>（Swagger UI）中可直接试用该接口，标签为「目录检索」。
+</div>
+
+</div>
+<script src="/docs/live-stats.js?v=1.5.2"></script>
+<script src="/docs/toc.js?v=1.5.2"></script>
+</body>
+</html>

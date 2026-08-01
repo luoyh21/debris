@@ -64,6 +64,13 @@ _EXTERNAL_TABLES: tuple[tuple[str, str], ...] = (
     ("unoosa", "external_unoosa_launches"),
     ("asterank", "external_asterank"),
     ("techport", "external_techport"),
+    ("ssa_sensors", "external_ssa_sensors"),
+    ("space_weather_sensors", "external_space_weather_sensors"),
+    ("ttc_stations", "external_ttc_stations"),
+    ("discos_launch_sites", "external_discos_launch_sites"),
+    ("discos_organisations", "external_discos_organisations"),
+    ("discos_esalof", "external_discos_esalof"),
+    ("discos_esalog", "external_discos_esalog"),
 )
 
 

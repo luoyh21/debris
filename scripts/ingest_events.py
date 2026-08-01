@@ -89,9 +89,14 @@ def fetch_discos_fragmentations(max_rows: int = 1000,
     if not token:
         log.warning("[DISCOS] ESA_DISCOS_TOKEN 未配置, 跳过")
         return []
-    headers = {"Authorization": f"Bearer {token}",
-               "DiscosWeb-Api-Version": "2",
-               "Accept": "application/json"}
+    # v2 必须显式声明 DiscosWeb-Api-Version（见 discos_client.py）
+    try:
+        from scripts.discos_client import discos_headers
+        headers = discos_headers(token)
+    except Exception:
+        headers = {"Authorization": f"Bearer {token}",
+                   "DiscosWeb-Api-Version": "2",
+                   "Accept": "application/vnd.api+json"}
     base = "https://discosweb.esoc.esa.int/api"
 
     out: List[SpaceEvent] = []

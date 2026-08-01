@@ -19,7 +19,9 @@ app = FastAPI(
     title="空间碎片监测系统 API",
     description=(
         "Space Debris Monitoring & Launch Collision Risk Assessment system API.\n\n"
-        "提供区域碎片查询、发射碰撞风险预测、再入预报、TLE 检索和 RCS 筛选等接口。"
+        "提供区域碎片查询、发射碰撞风险预测、再入预报、TLE 检索、RCS 筛选，"
+        "目标目录多维搜索与导出（/api/v1/catalog/search），"
+        "以及监测与测控网络三库查询（/api/v1/network/*）等接口。"
     ),
     version="1.5.0",
     docs_url="/api/docs",
@@ -159,6 +161,155 @@ def query_by_rcs(q: RCSQuery):
         alt_max_km=q.alt_max_km, object_type=q.object_type,
         limit=q.limit,
     )
+
+
+class CatalogSearchQuery(BaseModel):
+    name_query:    Optional[str]       = Field(None, description="名称 / NORAD / COSPAR 关键词")
+    object_types:  Optional[List[str]] = Field(None, description="对象类型: PAYLOAD / ROCKET BODY / DEBRIS / UNKNOWN")
+    country_query: Optional[str]       = Field(None, description="国家/地区中文关键词（如 中国 / 美国 / 俄罗斯），模糊匹配")
+    countries:     Optional[List[str]] = Field(None, description="国家/地区精确列表（中文显示名，可选；与 country_query 二选一）")
+    orbit:        str = Field("全部", description="轨道类型: 全部 / 仅太阳同步(SSO) / 排除SSO / LEO(<2000km) / MEO(2000-35586km) / GEO(~35786km)")
+    controlled:   str = Field("全部", description="受控(推定): 全部 / 仅受控(推定) / 仅存疑")
+    rcs_sizes:    Optional[List[str]] = Field(None, description="RCS 等级: SMALL / MEDIUM / LARGE")
+    alt_min:      float = Field(0.0,    description="最低平均高度 (km)")
+    alt_max:      float = Field(2000.0, description="最高平均高度 (km)")
+    incl_min:     float = Field(0.0,    description="最小倾角 (°)")
+    incl_max:     float = Field(180.0,  description="最大倾角 (°)")
+    ecc_max:      Optional[float] = Field(None, description="偏心率上限")
+    mass_min:     Optional[float] = Field(None, description="最小质量 (kg)")
+    mass_max:     Optional[float] = Field(None, description="最大质量 (kg)")
+    limit:        Optional[int] = Field(None, ge=1, description="结果上限；留空 = 不限制，返回全部匹配")
+
+
+@app.post("/api/v1/catalog/search", tags=["目录检索"],
+          summary="目标目录多维搜索与导出",
+          description=(
+              "按高度 / 倾角 / 偏心率 / 国家 / 类型 / RCS / 质量 / 太阳同步 / 受控 等条件检索在轨目标，"
+              "并自动计算轨道高度、线/角速度、太阳同步判定、受控（推定）、质量与尺寸。\n\n"
+              "- `format=json`（默认）返回 `{count, results}`，每条含规范字段；\n"
+              "- `format=xlsx` 直接返回 Excel 附件（含『字段与口径说明』sheet）。\n\n"
+              "与前端『搜索与导出』页面同源（analytics.catalog_search）。"))
+def catalog_search(q: CatalogSearchQuery, format: str = Query("json", pattern="^(json|xlsx)$")):
+    import json as _json
+    from database.db import session_scope
+    from analytics import catalog_search as cs
+    crit = q.model_dump()
+    try:
+        with session_scope() as sess:
+            df = cs.load_dataset(sess)
+        export_df = cs.build_export(cs.filter_dataset(df, crit))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"检索失败: {exc}")
+    if format == "xlsx":
+        from fastapi.responses import Response
+        data = cs.to_xlsx_bytes(export_df, crit)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="catalog_search.xlsx"'})
+    recs = _json.loads(export_df.to_json(orient="records", force_ascii=False)) if not export_df.empty else []
+    return {"count": len(recs), "results": recs}
+
+
+def _list_monitoring_table(table: str, network: Optional[str] = None,
+                           country: Optional[str] = None, q: Optional[str] = None):
+    """查询监测/测控库，返回 {count, results}（不含 geom）。"""
+    from sqlalchemy import text
+    from database.db import session_scope
+    where, params = [], {}
+    if network:
+        where.append("network ILIKE :network"); params["network"] = f"%{network}%"
+    if country:
+        where.append("country ILIKE :country"); params["country"] = f"%{country}%"
+    if q:
+        if table == "external_discos_esalof":
+            where.append(
+                "(COALESCE(object_name,'') ILIKE :q OR COALESCE(discos_id,'') ILIKE :q "
+                "OR COALESCE(event_type,'') ILIKE :q OR CAST(satno AS TEXT) ILIKE :q)"
+            )
+        elif table == "external_discos_esalog":
+            where.append(
+                "(COALESCE(name,'') ILIKE :q OR COALESCE(discos_id,'') ILIKE :q "
+                "OR COALESCE(object_class,'') ILIKE :q OR CAST(satno AS TEXT) ILIKE :q)"
+            )
+        elif table in ("external_discos_launch_sites", "external_discos_organisations"):
+            where.append("(COALESCE(name,'') ILIKE :q OR COALESCE(discos_id,'') ILIKE :q)")
+        else:
+            where.append("(COALESCE(name,'') ILIKE :q OR COALESCE(name_cn,'') ILIKE :q)")
+        params["q"] = f"%{q}%"
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    sql = f"SELECT * FROM {table}{clause} ORDER BY id"
+    try:
+        with session_scope() as sess:
+            rows = sess.execute(text(sql), params).fetchall()
+        recs = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("geom", None)
+            # datetime → iso
+            for k, v in list(d.items()):
+                if hasattr(v, "isoformat"):
+                    d[k] = v.isoformat()
+            recs.append(d)
+        return {"count": len(recs), "results": recs}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"查询失败: {exc}")
+
+
+@app.get("/api/v1/network/ssa-sensors", tags=["监测与测控网络"],
+         summary="空间物体监测设备列表",
+         description="全球天/地基空间物体监测设备库（SSN / TraCSS / ISON / LookUpSpace / TMDS 等）。"
+                     "口径见 docs/空间监测数据库构建.md。")
+def list_ssa_sensors(network: Optional[str] = None, country: Optional[str] = None,
+                     q: Optional[str] = None):
+    return _list_monitoring_table("external_ssa_sensors", network, country, q)
+
+
+@app.get("/api/v1/network/space-weather-sensors", tags=["监测与测控网络"],
+         summary="空间天气监测设备列表",
+         description="全球天/地基空间天气监测设备库（SWPC / GOES-R / EISCAT / APIS / 子午工程 等）。")
+def list_swx_sensors(network: Optional[str] = None, country: Optional[str] = None,
+                     q: Optional[str] = None):
+    return _list_monitoring_table("external_space_weather_sensors", network, country, q)
+
+
+@app.get("/api/v1/network/ttc-stations", tags=["监测与测控网络"],
+         summary="全球测控站列表",
+         description="全球测控站库（ESTRACK / DSN / USGS-Landsat / KSAT / AWS / SatNOGS / "
+                     "Starlink 社区站 / Brahe / ThumbNet / DISCOS 发射场 等）。")
+def list_ttc_stations(network: Optional[str] = None, country: Optional[str] = None,
+                      q: Optional[str] = None):
+    return _list_monitoring_table("external_ttc_stations", network, country, q)
+
+
+@app.get("/api/v1/network/discos-launch-sites", tags=["监测与测控网络"],
+         summary="DISCOS 发射场列表",
+         description="ESA DISCOSweb `/api/launch-sites` 全量（需 ESA_DISCOS_TOKEN 摄入）。")
+def list_discos_launch_sites(q: Optional[str] = None):
+    return _list_monitoring_table("external_discos_launch_sites", None, None, q)
+
+
+@app.get("/api/v1/network/discos-organisations", tags=["监测与测控网络"],
+         summary="DISCOS 组织机构列表",
+         description="ESA DISCOSweb `/api/organisations` 全量（需 ESA_DISCOS_TOKEN 摄入）。")
+def list_discos_organisations(q: Optional[str] = None):
+    return _list_monitoring_table("external_discos_organisations", None, None, q)
+
+
+@app.get("/api/v1/network/discos-esalof", tags=["监测与测控网络"],
+         summary="EsaLOF 碎片化事件",
+         description="DISCOSweb v2 `/api/fragmentations?include=objects`（解体/爆炸/碰撞 + 质量/RCS）。"
+                     "摄入：`python scripts/ingest_discos_esalof_esalog.py`。")
+def list_discos_esalof(q: Optional[str] = None):
+    return _list_monitoring_table("external_discos_esalof", None, None, q)
+
+
+@app.get("/api/v1/network/discos-esalog", tags=["监测与测控网络"],
+         summary="EsaLOG GEO 物体（质量/RCS）",
+         description="DISCOSweb v2 GEO 带 initial-orbits + object（SMA 40–45 Mm）。"
+                     "摄入：`python scripts/ingest_discos_esalof_esalog.py`。")
+def list_discos_esalog(q: Optional[str] = None):
+    return _list_monitoring_table("external_discos_esalog", None, None, q)
 
 
 @app.get("/api/v1/stats", tags=["系统统计"],

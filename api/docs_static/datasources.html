@@ -142,6 +142,27 @@
     <td>按需拉取（首次约 25–60 分钟，含本地缓存）</td>
     <td>持续更新，公开端点；可选 API Token（每次刷新 TechPort 站点都会换 token）</td>
   </tr>
+  <tr>
+    <td><strong>空间物体监测设备库</strong></td>
+    <td>天/地基 SSA 传感器：网络、频段、能力、经纬度（PostGIS Point）</td>
+    <td>SSN / TraCSS / ISON / LookUpSpace / TMDS 等（当前 <span data-live-stat="external_sources.ssa_sensors">—</span> 条）</td>
+    <td>离线种子 + 可增量补充</td>
+    <td>见 docs/空间监测数据库构建.md</td>
+  </tr>
+  <tr>
+    <td><strong>空间天气监测设备库</strong></td>
+    <td>天/地基空间天气传感器：可观测量、数据格式、经纬度</td>
+    <td>SWPC / GOES-R / EISCAT / APIS / 子午工程 等（当前 <span data-live-stat="external_sources.space_weather_sensors">—</span> 条）</td>
+    <td>离线种子 + 可增量补充</td>
+    <td>见 docs/空间监测数据库构建.md</td>
+  </tr>
+  <tr>
+    <td><strong>全球测控站库</strong></td>
+    <td>TT&amp;C / GSaaS / 众包地面站：天线口径、频段、站型、经纬度</td>
+    <td>ESTRACK / DSN / KSAT / AWS / SatNOGS / ThumbNet 等（当前 <span data-live-stat="external_sources.ttc_stations">—</span> 条）</td>
+    <td>离线种子 + 可增量补充</td>
+    <td>见 docs/空间监测数据库构建.md</td>
+  </tr>
 </table>
 
 <h2>各数据源详解</h2>
@@ -174,6 +195,17 @@
   <div class="card">
     <h4>NASA TechPort</h4>
     <p>独立的 <strong>NASA 航天技术项目组合（technology portfolio）</strong>，当前入库 <span data-live-stat="external_sources.techport">—</span> 条 NASA 资助 / 跟踪的技术项目（随官方公开数据变化）。每条记录含项目标题、详细描述、Technology Readiness Level（TRL，起 / 当前 / 终）、责任组织（含国家与州）、NASA 技术分类（TX01–TX17）、起止日期与目标方向（Earth / Moon / Mars …）。存储于 <code>external_techport</code> 表，可在 <a href="/docs/modules/catalog">目标目录</a>的「NASA 技术项目 (TechPort)」标签页筛选查看。由 <code>scripts/ingest_techport.py</code> 导入；公开端点无需 token，如需私有 / 草稿数据可在 <a href="https://techport.nasa.gov/help/api" target="_blank">techport.nasa.gov/help/api</a> 复制当前会话 token 并填入 <code>NASA_TECHPORT_TOKEN</code>（每次刷新都会变）。</p>
+  </div>
+  <div class="card">
+    <h4>监测与测控网络三库</h4>
+    <p>依据研究报告 <code>docs/空间监测数据库构建.md</code> 构建的三大要素库：
+      <strong>空间物体监测设备</strong>（<code>external_ssa_sensors</code>）、
+      <strong>空间天气监测设备</strong>（<code>external_space_weather_sensors</code>）、
+      <strong>全球测控站</strong>（<code>external_ttc_stations</code>）。
+      覆盖 SSN / TraCSS / ISON / LookUpSpace、SWPC / GOES-R / EISCAT / APIS、
+      ESTRACK（新诺西亚 DSA-4 等）/ DSN / KSAT / AWS Ground Station / SatNOGS / ThumbNet 等。
+      前端页面见 <a href="/docs/modules/monitoring-network">监测与测控网络</a>；
+      REST：<code>GET /api/v1/network/*</code>；摄入：<code>scripts/ingest_monitoring_network.py</code>。</p>
   </div>
 </div>
 

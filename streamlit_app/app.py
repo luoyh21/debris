@@ -18,6 +18,7 @@ import time as _time_mod
 from datetime import datetime, timezone, timedelta, date
 from sqlalchemy import text
 
+from analytics.country_labels import add_country_or_org_column
 from streamlit_app.nav_icons import (
     SIDEBAR_NAV_BLUE_CSS,
     icon_inline,
@@ -31,17 +32,19 @@ _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 _FAVICON_PATH = os.path.join(_ASSETS_DIR, "favicon.svg")
 
 NAV_PAGES = [
-    ("overview",  "系统概览",       "overview"),
-    ("viz",       "可视化探索",     "viz"),
-    ("catalog",   "目标目录",       "catalog"),
-    ("sim",       "轨迹仿真",       "sim"),
-    ("lcola",     "LCOLA 飞越筛选", "lcola"),
-    ("collision", "碰撞风险",       "collision"),
-    ("avoidance", "规避策略",       "avoidance"),
-    ("events",    "太空事件管理",   "events"),
-    ("longterm",  "长期风险评估",   "longterm"),
-    ("ai",        "AI 助手",        "ai"),
-    ("tools",     "功能面板",       "tools"),
+    ("overview",  "系统概览",         "overview"),
+    ("viz",       "可视化探索",       "viz"),
+    ("catalog",   "目标目录",         "catalog"),
+    ("search",    "搜索与导出",       "magnifier"),
+    ("network",   "数据库查询及导出", "globe_meridians"),
+    ("sim",       "轨迹仿真",         "sim"),
+    ("lcola",     "LCOLA 飞越筛选",   "lcola"),
+    ("collision", "碰撞风险",         "collision"),
+    ("avoidance", "规避策略",         "avoidance"),
+    ("events",    "太空事件管理",     "events"),
+    ("longterm",  "长期风险评估",     "longterm"),
+    ("ai",        "AI 助手",          "ai"),
+    ("tools",     "功能面板",         "tools"),
 ]
 
 
@@ -106,21 +109,30 @@ def get_db_session_factory():
 
 @st.cache_resource(show_spinner=False)
 def _prewarm_page_modules():
-    """进程级一次性预热：后台线程预导入各页面的重量级模块。
-
-    Streamlit 对每个页面模块按需导入（首次进入该页才 import），导致页面切换的
-    首次点击较慢。这里在进程内用一个守护线程提前把这些模块导入好（仅 import，
-    不调用任何 st.* 接口，无 ScriptRunContext 风险），使后续页面切换近乎秒开。
-    用 cache_resource 保证每个进程只执行一次。"""
+    """轻量预热：只提前导入高频轻页面；重模块（viz/plotly）按需加载，
+    避免拖慢进程启动与切页首帧。"""
     import threading
 
     def _warm():
         import importlib
+        # 轻量优先；重型 viz_explorer / plotly 留给进入对应页时再加载
         for mod in (
-            "plotly.express", "plotly.graph_objects", "pydeck", "altair",
-            "streamlit_app.viz_explorer", "streamlit_app.launch_trend",
-            "streamlit_app.events_page", "streamlit_app.longterm_risk",
-            "streamlit_app.avoidance_page", "streamlit_app.ordem_microdebris",
+            "streamlit_app.monitoring_network",
+            "streamlit_app.search_export",
+            "database.db",
+            "database.system_snapshot",
+        ):
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+        # 延迟再预热中等模块，不堵首屏
+        import time as _t
+        _t.sleep(3)
+        for mod in (
+            "altair",
+            "streamlit_app.events_page",
+            "streamlit_app.avoidance_page",
         ):
             try:
                 importlib.import_module(mod)
@@ -525,14 +537,23 @@ st.sidebar.markdown("---")
 st.sidebar.caption(f"UTC 时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
 st.sidebar.caption("数据来源：Space-Track · UCS · ESA DISCOS · GCAT · UNOOSA · Asterank · NASA TechPort")
 
-# ── 访问统计（持久化到 PostgreSQL，每个会话只把 total_sessions +1）──────────────
+# ── 访问统计（节流：每会话只写 1 次；展示结果缓存，避免每次切页打 DB）────────
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_visit_stats():
+    try:
+        from database.visit_stats import get_visit_stats
+        return get_visit_stats() or {}
+    except Exception:
+        return {}
+
+
 try:
-    from database.visit_stats import record_visit, get_visit_stats
-    _is_new_sess = not st.session_state.get("_visit_logged", False)
-    record_visit(new_session=_is_new_sess)
-    if _is_new_sess:
+    from database.visit_stats import record_visit
+    if not st.session_state.get("_visit_logged", False):
+        record_visit(new_session=True)
         st.session_state["_visit_logged"] = True
-    _vs = get_visit_stats()
+        _cached_visit_stats.clear()
+    _vs = _cached_visit_stats()
     if _vs:
         st.sidebar.caption(
             f"总访问 {_vs.get('total_sessions', 0):,} 次 · "
@@ -859,6 +880,7 @@ if page == "overview":
         LIMIT 15
     """)
     if not country_df.empty:
+        country_df = add_country_or_org_column(country_df)
         st.dataframe(country_df, use_container_width=True)
 
     st.markdown(section_title("download", "多源数据摄入状态"), unsafe_allow_html=True)
@@ -919,6 +941,13 @@ if page == "overview":
             ("external_unoosa_launches",        "UNOOSA 年度发射统计"),
             ("external_asterank",               "Asterank 小行星 / 近地天体目录"),
             ("external_techport",               "NASA TechPort 航天技术项目组合"),
+            ("external_ssa_sensors",            "空间物体监测设备库"),
+            ("external_space_weather_sensors",  "空间天气监测设备库"),
+            ("external_ttc_stations",           "全球测控站库"),
+            ("external_discos_launch_sites",    "DISCOS 发射场"),
+            ("external_discos_organisations",   "DISCOS 组织机构"),
+            ("external_discos_esalof",          "EsaLOF 碎片化事件"),
+            ("external_discos_esalog",          "EsaLOG GEO 物体"),
         ]
         for tbl, label in _aux_tables:
             try:
@@ -937,9 +966,9 @@ if page == "overview":
             st.caption(
                 "GCAT / UNOOSA 为历史发射趋势的聚合统计数据，用于可视化探索页面的发射趋势分析；"
                 "Asterank 为独立的小行星/近地天体专题库（[asterank.com](http://www.asterank.com)），"
-                "TechPort 为 NASA 航天技术项目组合（[techport.nasa.gov](https://techport.nasa.gov)），"
-                "三者均与地球在轨目标目录相互独立，分别可在目标目录页的"
-                "「小行星 / NEO (Asterank)」与「NASA 技术项目 (TechPort)」标签查看。"
+                "TechPort 为 NASA 航天技术项目组合（[techport.nasa.gov](https://techport.nasa.gov)）；"
+                "三大要素库（SSA / 空间天气 / 测控站）见左侧导航「数据库查询及导出」，"
+                "口径见 docs/空间监测数据库构建.md。"
             )
 
 # ------------------------------------------------------------------
@@ -948,6 +977,14 @@ if page == "overview":
 elif page == "viz":
     from streamlit_app.viz_explorer import render_viz_explorer
     render_viz_explorer()
+
+elif page == "search":
+    from streamlit_app.search_export import render_search_export
+    render_search_export()
+
+elif page == "network":
+    from streamlit_app.monitoring_network import render_monitoring_network
+    render_monitoring_network()
 
 # ------------------------------------------------------------------
 # 页面：目标目录
@@ -1080,7 +1117,7 @@ elif page == "catalog":
                     WHEN 'ROCKET BODY' THEN '箭体'
                     ELSE object_type
                 END            AS "类型",
-                country_code   AS "国家",
+                country_code   AS "国家代码",
                 launch_date    AS "发射日期",
                 ROUND(perigee_km::numeric, 1) AS "近地点(km)",
                 ROUND(apogee_km::numeric, 1)  AS "远地点(km)",
@@ -1105,6 +1142,7 @@ elif page == "catalog":
 
         st.write(f"**共 {len(df)} 条记录**（最多显示 2000 条）")
         if not df.empty:
+            df = add_country_or_org_column(df)
             st.dataframe(df, use_container_width=True, height=550)
         else:
             st.warning("当前筛选条件下无数据，请调整筛选范围或检查数据摄入状态。")
@@ -1370,7 +1408,7 @@ elif page == "catalog":
                     program_acronym     AS "项目所属计划",
                     lead_org_acronym    AS "责任机构",
                     lead_org_type       AS "机构类型",
-                    lead_org_country    AS "国家",
+                    lead_org_country    AS "国家代码",
                     lead_org_state      AS "州 / 省",
                     primary_tx_code     AS "技术分类 code",
                     primary_tx_title    AS "技术分类",
@@ -1386,6 +1424,7 @@ elif page == "catalog":
 
             st.write(f"**共 {len(t_df)} 条记录**（库中共 {_tp_n:,} 条；最多显示 2000 条）")
             if not t_df.empty:
+                t_df = add_country_or_org_column(t_df)
                 st.dataframe(t_df, use_container_width=True, height=550)
 
                 # 详情面板：选一个项目展开看 description / benefits 全文

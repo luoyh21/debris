@@ -477,7 +477,11 @@ def ingest_esa_discos(limit: int | None = None):
             log.warning("  No ESA_DISCOS_TOKEN set and no local CSV — skipping")
             return
     else:
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "DiscosWeb-Api-Version": "2",
+            "Accept": "application/vnd.api+json",
+        }
         base = "https://discosweb.esoc.esa.int/api"
 
         # ── Phase 1: Fetch all objects (fast, no include) ─────────────────
