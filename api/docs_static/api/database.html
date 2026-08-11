@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数据库与数据口径 · 空间碎片监测系统</title>
+<link rel="stylesheet" href="/docs/style.css?v=1.6.0">
+</head>
+<body>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>🛰️ 空间碎片监测系统</h1>
+    <div class="sub">数据库说明 · API v1.6</div>
+    <a class="back-link" href="/docs/api">← 返回 API 使用指南</a>
+  </div>
+  <div class="toc">
+    <div class="toc-section">数据说明</div>
+    <a href="/docs/api/database" class="active">数据库与数据口径</a>
+    <a href="#architecture" class="sub">存储架构</a>
+    <a href="#tables" class="sub">核心表与视图</a>
+    <a href="#sources" class="sub">来源与更新</a>
+    <a href="#quality" class="sub">时效与限制</a>
+    <a href="/docs/datasources">完整数据源说明</a>
+    <div class="toc-section">API 接口</div>
+    <a href="/docs/api">API 使用指南</a>
+    <a href="/api/redoc" target="_blank">ReDoc 接口定义</a>
+    <a href="/api/docs" target="_blank">Swagger 调试页</a>
+  </div>
+</div>
+
+<div class="main">
+<h1>数据库与数据口径</h1>
+<p>空间监测插件以 <strong>PostgreSQL + PostGIS</strong> 保存目录、轨道根数、传播轨迹、风险结果及外部增强数据。Orbit Copilot 调用的是同一套 REST API；查询结果与监测系统页面使用同一数据库和统一视图，不维护一份独立副本。</p>
+
+<div class="callout info">
+  <strong>当前库实时概况</strong><br>
+  主目录 <span data-live-stat="catalog_total">—</span> 个目标；GP/TLE <span data-live-stat="gp_elements_count">—</span> 条；
+  传播轨迹段 <span data-live-stat="trajectory_segments_count">—</span> 条；去重统一目录 <span data-live-stat="unified_total">—</span> 个目标。
+</div>
+
+<h2 id="architecture">存储架构</h2>
+<table>
+  <tr><th>层次</th><th>用途</th><th>主要技术</th></tr>
+  <tr><td>目录与属性</td><td>NORAD 编号、名称、类型、国家、发射日期、近远地点、倾角、RCS 等</td><td>PostgreSQL 关系表</td></tr>
+  <tr><td>轨道数据</td><td>GP/TLE 历元、平均运动、偏心率、BSTAR 与两行根数</td><td>PostgreSQL + SGP4</td></tr>
+  <tr><td>时空轨迹</td><td>ECI 与地理坐标三维轨迹段，用于区域检索与预报</td><td>PostGIS LINESTRINGZ</td></tr>
+  <tr><td>统一目录</td><td>按 NORAD 编号合并 Space-Track、UCS、ESA-DISCOS 及用户数据源</td><td><code>v_unified_objects</code> 物化视图</td></tr>
+  <tr><td>专题与网络库</td><td>事件、监测设备、空间天气传感器、测控站、Asterank、NASA TechPort 等</td><td>独立外部数据表</td></tr>
+</table>
+
+<h2 id="tables">核心表与视图</h2>
+<table>
+  <tr><th>表 / 视图</th><th>内容</th><th>主要使用功能</th></tr>
+  <tr><td><code>catalog_objects</code></td><td>Space-Track 主目录及基本轨道摘要</td><td>目录搜索、类型/国家/高度筛选</td></tr>
+  <tr><td><code>gp_elements</code></td><td>最新 GP/TLE 与轨道历元</td><td>TLE 查询、SGP4 传播、太阳同步判定</td></tr>
+  <tr><td><code>trajectory_segments</code></td><td>预计算 ECI / 地理三维轨迹段</td><td>区域碎片查询、可视化与窗口预报</td></tr>
+  <tr><td><code>v_unified_objects</code></td><td>多源优先级去重后的统一目标目录</td><td>目标目录、多维检索与 XLSX 导出</td></tr>
+  <tr><td><code>launch_windows</code> / <code>collision_risks</code></td><td>发射窗口、交会距离与碰撞概率结果</td><td>发射碰撞风险评估</td></tr>
+  <tr><td><code>space_events</code></td><td>解体、碰撞、再入、机动和 CDM 等事件</td><td>事件管理与再入分析</td></tr>
+  <tr><td><code>user_data_objects</code> / <code>datasource_priority</code></td><td>用户数据源及其去重优先级</td><td>自定义数据源接入</td></tr>
+</table>
+
+<h2 id="sources">数据来源与更新</h2>
+<table>
+  <tr><th>来源</th><th>主要贡献</th><th>更新方式</th></tr>
+  <tr><td>Space-Track.org</td><td>编目目标、GP/TLE、RCS 与衰减信息</td><td>按需或增量摄入；TLE 本身会随官方发布更新</td></tr>
+  <tr><td>UCS Satellite Database</td><td>有效载荷用途、用户类型与运营方</td><td>随公开版本批量更新</td></tr>
+  <tr><td>ESA DISCOS</td><td>质量、截面积、形状、任务与在轨状态</td><td>批量 / 增量同步</td></tr>
+  <tr><td>GCAT / UNOOSA</td><td>发射历史、国别趋势与登记信息</td><td>随来源发布周期更新</td></tr>
+  <tr><td>监测与测控网络三库</td><td>SSA 设备、空间天气传感器、全球测控站</td><td>离线种子加增量补充</td></tr>
+</table>
+<p>更完整的数据源字段、覆盖范围和专题库说明见 <a href="/docs/datasources">数据来源与覆盖范围</a>。实时记录数可由 <a href="/docs/api/stats"><code>GET /api/v1/stats</code></a> 获取，页面中的数字也由该接口动态填充。</p>
+
+<h2 id="quality">数据时效、口径与限制</h2>
+<ul>
+  <li><strong>时间口径：</strong>接口时间统一使用 UTC；GP/TLE 的 <code>epoch</code> 是轨道根数历元，不等于数据下载时间。</li>
+  <li><strong>高度口径：</strong>目录检索的平均高度由近地点与远地点高度计算；太阳同步标签由高度与倾角关系进行工程判定。</li>
+  <li><strong>统一口径：</strong>同一 NORAD 编号存在多个来源时，由 <code>datasource_priority</code> 中数值更小的来源优先，增强字段按可用性补充。</li>
+  <li><strong>空值：</strong>质量、尺寸、用途和运营方并非所有目标都公开；空值表示当前数据源未提供，Orbit Copilot 导出时会保持为空。</li>
+  <li><strong>预报限制：</strong>TLE/SGP4 适合近期工程预报，不等同于高精度定轨产品；碰撞与再入结果应结合数据历元和模型假设使用。</li>
+  <li><strong>敏感信息：</strong>数据库账号、密码、Space-Track 凭据和服务令牌不会在本文档或 API 响应中展示。</li>
+</ul>
+
+<h2>与 Orbit Copilot 的关系</h2>
+<p>启用“空间碎片监测”插件后，Orbit Copilot 会从当前用户配置的 API 地址同步全部非敏感 OpenAPI 操作。类似“查一下 600–800 km 高度、太阳同步轨道的卫星列表，请导出一个 xlsx”这类请求，会先调用目录检索接口取得真实结果，再在本机生成 Excel 文件并由用户选择保存位置。</p>
+</div>
+<script src="/docs/live-stats.js?v=1.6.0"></script>
+<script src="/docs/toc.js?v=1.6.0"></script>
+</body>
+</html>
